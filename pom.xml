@@ -3,7 +3,7 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>DVUploader</groupId>
     <artifactId>DVUploader</artifactId>
-    <version>0.9</version>
+    <version>1.0.0</version>
     <build>
         <sourceDirectory>src/main/java</sourceDirectory>
         <plugins>
@@ -28,7 +28,7 @@
                     <descriptorRefs>
                         <descriptorRef>jar-with-dependencies</descriptorRef>
                     </descriptorRefs>
-                    <finalName>${project.artifactId}-${project.version}</finalName>
+                    <finalName>${project.artifactId}-v${project.version}</finalName>
                     <appendAssemblyId>false</appendAssemblyId>
                 </configuration>
             </plugin>
