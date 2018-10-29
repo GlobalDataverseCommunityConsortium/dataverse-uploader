@@ -32,7 +32,6 @@ import org.apache.http.client.methods.HttpGet;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
 import org.apache.http.util.EntityUtils;
-import org.apache.log4j.Logger;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.sead.uploader.clowder.SEADUploader;
@@ -62,8 +61,6 @@ public class ResourceFactory {
 			put("External Identifier", "Persistent Identifier of Original");
 		}
 	};
-
-	private static final Logger log = Logger.getLogger(ResourceFactory.class);
 
 	JSONObject oremap;
 	ArrayList<String> index;
@@ -110,15 +107,12 @@ public class ResourceFactory {
 			try {
 				HttpGet getResource = new HttpGet(uri);
 				getResource.setHeader("Content-type", "application/json;charset=utf-8");
-				log.trace("Retrieving " + tries + ": " + uri);
 
 				CloseableHttpResponse response;
 				response = client.execute(getResource);
 				if (response.getStatusLine().getStatusCode() == 200) {
-					log.trace("Retrieved: " + uri);
 					return response.getEntity();
 				}
-				log.debug("Status: " + response.getStatusLine().getStatusCode());
 				tries++;
 
 			} catch (ClientProtocolException e) {
@@ -129,11 +123,12 @@ public class ResourceFactory {
 				// Retry if this is a potentially temporary error such
 				// as a timeout
 				tries++;
-				log.warn("Attempt# " + tries + " : Unable to retrieve file: "
+/*				log.warn("Attempt# " + tries + " : Unable to retrieve file: "
 						+ uri, e);
 				if (tries == 5) {
 					log.error("Final attempt failed for " + uri);
 				}
+*/
 				e.printStackTrace();
 			}
 		}

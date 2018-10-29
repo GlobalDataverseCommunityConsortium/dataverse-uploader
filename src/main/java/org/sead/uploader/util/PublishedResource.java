@@ -28,14 +28,11 @@ import org.apache.http.HttpEntity;
 import org.apache.http.entity.ContentType;
 import org.apache.http.entity.mime.content.ContentBody;
 import org.apache.http.entity.mime.content.InputStreamBody;
-import org.apache.log4j.Logger;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
 public class PublishedResource implements Resource {
-
-	static final Logger log = Logger.getLogger(PublishedResource.class);
 
 	protected JSONObject resource;
 	private String path;
@@ -236,7 +233,6 @@ public class PublishedResource implements Resource {
 			} else if (o instanceof String) {
 				return new JSONArray("[	" + (String) o + " ]");
 			}
-			log.error("Error finding children: " + o.toString());
 			return new JSONArray();
 		}
 	}

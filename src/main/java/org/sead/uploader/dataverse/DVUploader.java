@@ -31,8 +31,6 @@ import org.apache.http.entity.mime.content.ContentBody;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
 import org.apache.http.util.EntityUtils;
-import org.apache.log4j.LogManager;
-import org.apache.log4j.PropertyConfigurator;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.sead.uploader.AbstractUploader;
@@ -56,8 +54,7 @@ public class DVUploader extends AbstractUploader {
 
         URL config = ClassLoader.getSystemResource("log4j.properties");
 
-        LogManager.resetConfiguration();
-        PropertyConfigurator.configure(config);
+        
 
         setUploader(new DVUploader());
         uploader.createLogFile("DVUploaderLog_");
