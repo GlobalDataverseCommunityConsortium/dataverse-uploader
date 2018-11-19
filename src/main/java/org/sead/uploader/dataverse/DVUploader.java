@@ -52,10 +52,6 @@ public class DVUploader extends AbstractUploader {
 
     public static void main(String args[]) throws Exception {
 
-        URL config = ClassLoader.getSystemResource("log4j.properties");
-
-        
-
         setUploader(new DVUploader());
         uploader.createLogFile("DVUploaderLog_");
         uploader.setSpaceType("Dataverse")
@@ -82,7 +78,7 @@ public class DVUploader extends AbstractUploader {
 
     private static void usage() {
         println("\nUsage:");
-        println("  java -jar DVUploader-0.9.jar -server=<serverURL> -key=<apikey> -did=<dataset DOI> <files or directories>");
+        println("  java -jar DVUploader-1.0.1.jar -server=<serverURL> -key=<apikey> -did=<dataset DOI> <files or directories>");
 
         println("\n  where:");
         println("      <serverUrl> = the URL of the server to upload to, e.g. https://datverse.tdl.org");
@@ -90,9 +86,11 @@ public class DVUploader extends AbstractUploader {
         println("      <did> = the Dataset DOI you are uploading to, e.g. doi:10.5072/A1B2C3");
         println("      <files or directories> = a space separated list of files to upload or directory name(s) where the files to upload are");
         println("\n  Optional Arguments:");
-        println("      -listonly  - Scan the Dataset and local files and list what would be uploaded (does not upload with this flag)");
-        println("      -limit=<n> - Specify a maximum number of files to upload per invocation.");
-        println("      -verify    - Check both the file name and checksum in comparing with current Dataset entries.");
+        println("      -listonly    - Scan the Dataset and local files and list what would be uploaded (does not upload with this flag)");
+        println("      -limit=<n>   - Specify a maximum number of files to upload per invocation.");
+        println("      -verify      - Check both the file name and checksum in comparing with current Dataset entries.");
+        println("      -skip=<n>    - a number of files to skip before starting processing (saves time when you know the first n files have been uploaded before)");
+
         println("      -maxlockwait - the maximum time to wait (in seconds) for a Dataset lock (i.e. while the last file is ingested) to expire (default 60 seconds)");
         println("");
 

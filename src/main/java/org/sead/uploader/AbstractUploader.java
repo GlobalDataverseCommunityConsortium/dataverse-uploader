@@ -27,6 +27,8 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 import org.apache.http.client.ClientProtocolException;
 import org.apache.http.client.protocol.HttpClientContext;
@@ -55,6 +57,7 @@ public abstract class AbstractUploader {
     protected static final String argSeparator = "=";
 
     private long max = Long.MAX_VALUE;
+    private Long skip = 0l;
     private boolean merge = true;
     protected boolean verify = false;
     protected boolean importRO = false;
@@ -127,6 +130,9 @@ public abstract class AbstractUploader {
             } else if (arg.startsWith("-limit")) {
                 max = Long.parseLong(arg.substring(arg.indexOf(argSeparator) + 1));
                 println("Max ingest file count: " + max);
+            } else if (arg.startsWith("-skip")) {
+                skip = Long.parseLong(arg.substring(arg.indexOf(argSeparator) + 1));
+                println("Skip file count: " + skip);
             } else if (arg.startsWith("-ex")) {
                 excluded.add(arg.substring(arg.indexOf(argSeparator) + 1));
                 println("Exluding pattern: " + arg.substring(arg.indexOf(argSeparator) + 1));
@@ -146,11 +152,19 @@ public abstract class AbstractUploader {
     public abstract HttpClientContext authenticate();
 
     public void processRequests() {
-
+        if(importRO && (skip>0 || max < Long.MAX_VALUE)) {
+            println("Cannot set max or skip limits when importing an existing RO");
+            System.exit(0);
+        }
+        //Avoid max+skip > Long.MAX_VALUE
+        max=((Long.MAX_VALUE-max) -skip) <0 ? (max-skip): max;
         localContext = authenticate();
         if (localContext == null) {
             println("Authentication failure - exiting.");
             System.exit(0);
+        }
+        if(skip>0) {
+            println("WILL SKIP " + skip + " FILES");
         }
         try {
             if (importRO) {
@@ -172,20 +186,26 @@ public abstract class AbstractUploader {
                             String newUri = uploadCollection(file, "", null, tagId);
 
                             if (newUri != null) {
-                                println("              " + file.getPath() + " CREATED as: " + newUri);
+                                println("FINALIZING(D): " + file.getPath() + " CREATED as: " + newUri);
                             } else if ((tagId == null) && !listonly) {
                                 println("Not uploaded due to error during processing: " + file.getPath());
                             }
 
                         } else {
 
-                            if (globalFileCount < max) {
+                            if ((globalFileCount >= skip) && (globalFileCount < (max + skip))) {
                                 String newUri = uploadDatafile(file, null, tagId);
                                 if (newUri != null) {
                                     println("              UPLOADED as: " + newUri);
-                                } else if ((tagId == null) && !listonly) {
+                                    globalFileCount++;
+                                    totalBytes += file.length();
+                                    println("CURRENT TOTAL: " + globalFileCount + " files :" + totalBytes + " bytes");
+                                } else if ((tagId == null) && (!listonly)) {
                                     println("Not uploaded due to error during processing: " + file.getPath());
-                                }
+                                } 
+                            } else {
+                                println("SKIPPING(F):  " + file.getPath());
+                                skip--;
                             }
                         }
                     }
@@ -276,7 +296,7 @@ public abstract class AbstractUploader {
         new HashSet<String>();
         new HashSet<String>();
 
-        println("\nPROCESSING(C): " + dir.getPath());
+        println("\nPROCESSING(D): " + dir.getPath());
         if (collectionId != null) {
             println("              Found as: " + collectionId);
         } else {
@@ -312,7 +332,8 @@ public abstract class AbstractUploader {
                  * Stop processing new items when we hit the limit, but finish writing/adding
                  * children to the current collection.
                  */
-                if (globalFileCount < max) {
+
+                if (globalFileCount < (max + skip)) {
 
                     /*
                      * If existingUri != null, recursive calls will check children only (and
@@ -323,23 +344,30 @@ public abstract class AbstractUploader {
                         newUri = uploadCollection(file, path, collectionId, existingUri);
 
                         if ((existingUri == null) && (newUri != null)) {
-                            println("FINALIZING(C): " + file.getPath() + " CREATED as: " + newUri);
+                            println("FINALIZING(D): " + file.getPath() + " CREATED as: " + newUri);
                         }
                     } else {
+                        if (globalFileCount >= skip) {
+                            // fileStats[1] += file.length();
+                            newUri = uploadDatafile(file, path, existingUri);
 
-                        // fileStats[1] += file.length();
-                        newUri = uploadDatafile(file, path, existingUri);
+                            // At this point, For 1.x, dataset is added but not
+                            // linked to parent, for 2.0 file is in dataset, but not
+                            // in a subfolder
+                            postProcessDatafile(newUri, existingUri, collectionId, file, dir);
 
-                        // At this point, For 1.x, dataset is added but not
-                        // linked to parent, for 2.0 file is in dataset, but not
-                        // in a subfolder
-                        postProcessDatafile(newUri, existingUri, collectionId, file, dir);
-
-                        if ((existingUri == null) && (newUri != null)) {
-                            globalFileCount++;
-                            totalBytes += file.length();
-                            println("               UPLOADED as: " + newUri);
-                            println("CURRENT TOTAL: " + globalFileCount + " files :" + totalBytes + " bytes");
+                            if ((existingUri == null) && (newUri != null)) {
+                                globalFileCount++;
+                                totalBytes += file.length();
+                                println("               UPLOADED as: " + newUri);
+                                println("CURRENT TOTAL: " + globalFileCount + " files :" + totalBytes + " bytes");
+                            } 
+                        } else {
+                            println("SKIPPING(F):  " + file.getPath());
+                            skip = skip - 1;
+                            if(skip==0l) {
+                                println("\nSKIP COMPLETE");
+                            }
                         }
                     }
                 }
@@ -393,7 +421,7 @@ public abstract class AbstractUploader {
 
     public String uploadDatafile(Resource file, String path, String dataId) {
         long startTime = System.currentTimeMillis();
-        println("\nPROCESSING(D): " + file.getPath());
+        println("\nPROCESSING(F): " + file.getPath());
         if (path != null) {
             path += "/" + file.getName();
         } else {
@@ -462,7 +490,8 @@ public abstract class AbstractUploader {
     public String itemExists(String path, Resource item) {
         //Default is to report the item as not found
         return null;
-    };
+    }
+    ;
 
     HashMap<String, String> hashIssues = new HashMap<String, String>();
 
@@ -475,7 +504,7 @@ public abstract class AbstractUploader {
     public static void setUploader(AbstractUploader uploader) {
         AbstractUploader.uploader = uploader;
     }
-    
+
     public HttpClientContext getLocalContext() {
         return localContext;
     }
@@ -483,5 +512,5 @@ public abstract class AbstractUploader {
     public void setSpaceType(String spaceType) {
         this.spaceType = spaceType;
     }
-    
+
 }

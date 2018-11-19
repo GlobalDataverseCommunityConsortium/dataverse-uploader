@@ -209,6 +209,7 @@ public class SEADAuthenticator {
         if (authenticated) {
             return localContext;
         }
+        
         return null;
     }
 
@@ -225,9 +226,7 @@ public class SEADAuthenticator {
     public static HttpClientContext UPReAuthenticateIfNeeded(String server,
             long startTime) {
         if ((startTime - authTime) > 300000l) { //assume it lasts at least 5*60*1000 msec == 5 min
-            if (getMe(server) == null) {
-                return UPAuthenticate(server);
-            }
+            return UPAuthenticate(server);
         }
         return localContext;
     }

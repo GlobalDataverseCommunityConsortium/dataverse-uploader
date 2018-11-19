@@ -75,6 +75,7 @@ public class SEADUploader extends AbstractUploader {
     private static final String DCTERMS_HAS_PART = "http://purl.org/dc/terms/hasPart";
 
     private static boolean d2a = false;
+    private static String apiKey = null;
     private static String sead2datasetId = null;
 
     private static String CLOWDER_DEFAULT_VOCAB = "https://clowder.ncsa.illinois.edu/contexts/dummy";
@@ -83,9 +84,47 @@ public class SEADUploader extends AbstractUploader {
         setUploader(new SEADUploader());
         uploader.createLogFile("SEADUploaderLog_");
         uploader.setSpaceType("SEAD2");
-        println("SEAD 2 Mode: Uploading files to a Clowder instance");
+        println("\n----------------------------------------------------------------------------------\n");
+        println("SSS   EEEE    A    DDD");
+        println("S     E      A A   D  D");
+        println(" SS   EEE   AAAAA  D   D");
+        println("   S  E     A   A  D  D");
+        println("SSS   EEEE  A   A  DDD");
+        
+        println("SEADUploader - a command-line application to upload files to any Clowder Dataset");
+        println("Developed for the SEAD (https://sead-data.net) Community");
+        println("\n----------------------------------------------------------------------------------\n");
+        println("\n***Parsing arguments:***\n");
         uploader.parseArgs(args);
-        uploader.processRequests();
+
+        if (server == null || requests.isEmpty()) {
+            println("\n***Required arguments not found.***");
+            usage();
+        } else {
+            println("\n***Starting to Process Upload Requests:***\n");
+            uploader.processRequests();
+        }
+        println("\n***Execution Complete.***");
+    }
+
+        private static void usage() {
+        println("\nUsage:");
+        println("  java -cp .;sead2.1.jar org.sead.uploader.clowder.SEADUploader -server=<serverURL> <files or directories>");
+
+        println("\n  where:");
+        println("      <serverUrl> = the URL of the server to upload to, e.g. https://sead2.ncsa.illinois.edu");
+        println("      <files or directories> = a space separated list of files to upload or directory name(s) where the files to upload are");
+        println("\n  Optional Arguments:");
+        println("      -key=<apiKey> - your personal apikey, created in the server at <serverUrl>");
+        println("                    - using an apiKey avoids having to enter your username/password and having to reauthenticate for long upload runs");
+        println("      -listonly     - Scan the Dataset and local files and list what would be uploaded (does not upload with this flag)");
+        println("      -limit=<n>    - Specify a maximum number of files to upload per invocation.");
+        println("      -verify       - Check both the file name and checksum in comparing with current Dataset entries.");
+        println("      -skip=<n>     - a number of files to skip before starting processing (saves time when you know the first n files have been uploaded before)");
+        println("      -forcenew     - A new dataset will be created for this upload, even if a matching one is found.");
+        println("      -importRO     - uploads from a zipped BagIt file rather than from disk");
+        println("");
+
     }
 
     public boolean parseCustomArg(String arg) {
@@ -93,11 +132,23 @@ public class SEADUploader extends AbstractUploader {
             d2a = true;
             println("Description to Abstract translation on");
             return true;
+        } else if (arg.startsWith("-key")) {
+            apiKey = arg.substring(arg.indexOf(argSeparator) + 1);
+            println("Using apiKey: " + apiKey);
+            return true;
         }
         return false;
     }
 
     public HttpClientContext authenticate() {
+        if (apiKey != null) {
+            //Don't need to update context since we have the apikey to use
+            if (getLocalContext() == null) {
+                return (new HttpClientContext());
+            } else {
+                return getLocalContext();
+            }
+        }
         return SEADAuthenticator
                 .UPAuthenticate(server);
     }
@@ -106,9 +157,8 @@ public class SEADUploader extends AbstractUploader {
             Resource file) {
         CloseableHttpClient httpclient = HttpClients.createDefault();
         try {
-
-            HttpPost httppost = new HttpPost(server + "/api/datasets/"
-                    + sead2datasetId + "/moveFile/" + parentId + "/" + newUri);
+            HttpPost httppost = new HttpPost(appendKeyIfUsed(server + "/api/datasets/"
+                    + sead2datasetId + "/moveFile/" + parentId + "/" + newUri));
 
             StringEntity se = new StringEntity("{}");
             se.setContentType(new BasicHeader(HTTP.CONTENT_TYPE,
@@ -156,9 +206,13 @@ public class SEADUploader extends AbstractUploader {
         String collectionId = null;
         CloseableHttpClient httpclient = HttpClients.createDefault();
         try {
-
-            HttpPost httppost = new HttpPost(server + "/api/datasets/"
-                    + sead2datasetId + "/newFolder");
+            String postUri = server + "/api/datasets/"
+                    + sead2datasetId + "/newFolder";
+            if (apiKey != null) {
+                postUri = postUri + "?key=" + apiKey;
+            }
+            HttpPost httppost = new HttpPost(appendKeyIfUsed(server + "/api/datasets/"
+                    + sead2datasetId + "/newFolder"));
 
             JSONObject jo = new JSONObject();
             String title = dir.getName().trim();
@@ -199,8 +253,8 @@ public class SEADUploader extends AbstractUploader {
                     folderPath = folderPath.substring(folderPath.substring(1)
                             .indexOf("/") + 1);
 
-                    HttpGet httpget = new HttpGet(server + "/api/datasets/"
-                            + sead2datasetId + "/folders");
+                    HttpGet httpget = new HttpGet(appendKeyIfUsed(server + "/api/datasets/"
+                            + sead2datasetId + "/folders"));
 
                     CloseableHttpResponse getResponse = httpclient.execute(
                             httpget, getLocalContext());
@@ -283,8 +337,8 @@ public class SEADUploader extends AbstractUploader {
         CloseableHttpClient httpclient = HttpClients.createDefault();
         try {
 
-            HttpPost httppost = new HttpPost(server
-                    + "/api/datasets/createempty");
+            HttpPost httppost = new HttpPost(appendKeyIfUsed(server
+                    + "/api/datasets/createempty"));
             JSONObject jo = new JSONObject();
             String title = dir.getName().trim();
             // For publishedResource, we want to use the Title
@@ -357,8 +411,8 @@ public class SEADUploader extends AbstractUploader {
                 }
                 // FixMe Add tags
                 if (tagValues != null) {
-                    HttpPost tagPost = new HttpPost(server + "/api/datasets/"
-                            + datasetId + "/tags");
+                    HttpPost tagPost = new HttpPost(appendKeyIfUsed(server + "/api/datasets/"
+                            + datasetId + "/tags"));
                     JSONObject tags = new JSONObject();
 
                     String[] tagArray = tagValues.split(",");
@@ -394,8 +448,8 @@ public class SEADUploader extends AbstractUploader {
                     Collections.sort(comments);
                     for (String text : comments.toArray(new String[comments
                             .size()])) {
-                        HttpPost commentPost = new HttpPost(server
-                                + "/api/datasets/" + datasetId + "/comment");
+                        HttpPost commentPost = new HttpPost(appendKeyIfUsed(server
+                                + "/api/datasets/" + datasetId + "/comment"));
 
                         JSONObject comment = new JSONObject();
                         comment.put("text", text);
@@ -572,7 +626,7 @@ public class SEADUploader extends AbstractUploader {
             try {
                 String serviceUrl = server + "/api/me";
 
-                HttpGet httpget = new HttpGet(serviceUrl);
+                HttpGet httpget = new HttpGet(appendKeyIfUsed(serviceUrl));
                 CloseableHttpResponse response = httpclient.execute(httpget,
                         getLocalContext());
                 try {
@@ -614,7 +668,7 @@ public class SEADUploader extends AbstractUploader {
             // Now post data
             String urlString = server + "/api/uploadToDataset/"
                     + sead2datasetId;
-            HttpPost httppost = new HttpPost(urlString);
+            HttpPost httppost = new HttpPost(appendKeyIfUsed(urlString));
             ContentBody bin = file.getContentBody();
             MultipartEntityBuilder meb = MultipartEntityBuilder.create();
             meb.addPart("files[]", bin);
@@ -684,8 +738,8 @@ public class SEADUploader extends AbstractUploader {
                         context, agent);
 
                 if (abs != null) {
-                    HttpPut descPut = new HttpPut(server + "/api/files/"
-                            + dataId + "/updateDescription");
+                    HttpPut descPut = new HttpPut(appendKeyIfUsed(server + "/api/files/"
+                            + dataId + "/updateDescription"));
                     JSONObject desc = new JSONObject();
 
                     desc.put("description", abs);
@@ -727,8 +781,8 @@ public class SEADUploader extends AbstractUploader {
                 // of the readme file
                 // as set in the Proxy class.
                 if (title != null) {
-                    HttpPut namePut = new HttpPut(server + "/api/files/"
-                            + dataId + "/filename");
+                    HttpPut namePut = new HttpPut(appendKeyIfUsed(server + "/api/files/"
+                            + dataId + "/filename"));
                     JSONObject name = new JSONObject();
 
                     name.put("name", title);
@@ -764,8 +818,8 @@ public class SEADUploader extends AbstractUploader {
 
                 // FixMe Add tags
                 if (tagValues != null) {
-                    HttpPost tagPost = new HttpPost(server + "/api/files/"
-                            + dataId + "/tags");
+                    HttpPost tagPost = new HttpPost(appendKeyIfUsed(server + "/api/files/"
+                            + dataId + "/tags"));
                     JSONObject tags = new JSONObject();
 
                     String[] tagArray = tagValues.split(",");
@@ -802,8 +856,8 @@ public class SEADUploader extends AbstractUploader {
                     Collections.sort(comments);
                     for (String text : comments.toArray(new String[comments
                             .size()])) {
-                        HttpPost commentPost = new HttpPost(server
-                                + "/api/files/" + dataId + "/comment");
+                        HttpPost commentPost = new HttpPost(appendKeyIfUsed(server
+                                + "/api/files/" + dataId + "/comment"));
 
                         JSONObject comment = new JSONObject();
                         comment.put("text", text);
@@ -925,7 +979,7 @@ public class SEADUploader extends AbstractUploader {
             se2.setContentType(new BasicHeader(HTTP.CONTENT_TYPE,
                     "application/json; charset=utf-8"));
 
-            HttpPost metadataPost = new HttpPost(uri);
+            HttpPost metadataPost = new HttpPost(appendKeyIfUsed(uri));
 
             metadataPost.setEntity(se2);
 
@@ -961,7 +1015,7 @@ public class SEADUploader extends AbstractUploader {
             se2.setContentType(new BasicHeader(HTTP.CONTENT_TYPE,
                     "application/json; charset=utf-8"));
 
-            HttpPost creatorPost = new HttpPost(uri);
+            HttpPost creatorPost = new HttpPost(appendKeyIfUsed(uri));
 
             creatorPost.setEntity(se2);
 
@@ -1011,7 +1065,7 @@ public class SEADUploader extends AbstractUploader {
                     // Only returns first 12 by default
                     String serviceUrl = server + "/api/datasets?limit=0";
 
-                    HttpGet httpget = new HttpGet(serviceUrl);
+                    HttpGet httpget = new HttpGet(appendKeyIfUsed(serviceUrl));
 
                     CloseableHttpResponse response = httpclient.execute(
                             httpget, getLocalContext());
@@ -1041,7 +1095,7 @@ public class SEADUploader extends AbstractUploader {
                             serviceUrl = server + "/api/datasets/" + id
                                     + "/metadata.jsonld";
 
-                            httpget = new HttpGet(serviceUrl);
+                            httpget = new HttpGet(appendKeyIfUsed(serviceUrl));
 
                             response = httpclient.execute(httpget,
                                     getLocalContext());
@@ -1127,7 +1181,7 @@ public class SEADUploader extends AbstractUploader {
                     String serviceUrl = server + "/api/datasets/"
                             + sead2datasetId + "/folders";
 
-                    HttpGet httpget = new HttpGet(serviceUrl);
+                    HttpGet httpget = new HttpGet(appendKeyIfUsed(serviceUrl));
 
                     CloseableHttpResponse response = httpclient.execute(
                             httpget, getLocalContext());
@@ -1184,7 +1238,7 @@ public class SEADUploader extends AbstractUploader {
                     String serviceUrl = server + "/api/datasets/"
                             + sead2datasetId + "/listAllFiles";
 
-                    HttpGet httpget = new HttpGet(serviceUrl);
+                    HttpGet httpget = new HttpGet(appendKeyIfUsed(serviceUrl));
 
                     CloseableHttpResponse response = httpclient.execute(
                             httpget, getLocalContext());
@@ -1214,7 +1268,7 @@ public class SEADUploader extends AbstractUploader {
                             serviceUrl = server + "/api/files/" + id
                                     + "/metadata.jsonld";
 
-                            httpget = new HttpGet(serviceUrl);
+                            httpget = new HttpGet(appendKeyIfUsed(serviceUrl));
 
                             response = httpclient.execute(httpget,
                                     getLocalContext());
@@ -1303,7 +1357,7 @@ public class SEADUploader extends AbstractUploader {
             // permanent option or replaced with the metadata check later
             serviceUrl = server + "/api/files/"
                     + URLEncoder.encode(tagId, "UTF-8") + "/blob";
-            HttpGet httpget = new HttpGet(serviceUrl);
+            HttpGet httpget = new HttpGet(appendKeyIfUsed(serviceUrl));
 
             CloseableHttpResponse response = httpclient.execute(httpget,
                     getLocalContext());
@@ -1599,9 +1653,9 @@ public class SEADUploader extends AbstractUploader {
                 CloseableHttpClient httpclient = HttpClients
                         .createDefault();
 
-                HttpGet httpget = new HttpGet(server
+                HttpGet httpget = new HttpGet(appendKeyIfUsed(server
                         + "/api/datasets/" + sead2datasetId
-                        + "/listFiles");
+                        + "/listFiles"));
 
                 CloseableHttpResponse getResponse = httpclient
                         .execute(httpget, getLocalContext());
@@ -1656,8 +1710,23 @@ public class SEADUploader extends AbstractUploader {
 
     @Override
     protected HttpClientContext reauthenticate(long startTime) {
-        return SEADAuthenticator.UPReAuthenticateIfNeeded(server,
-                startTime);
+        if (apiKey != null) {
+            return getLocalContext();
+        } else {
+            return SEADAuthenticator.UPReAuthenticateIfNeeded(server,
+                    startTime);
+        }
+    }
+
+    private String appendKeyIfUsed(String url) {
+        if (apiKey != null) {
+            if (url.contains("?")) {
+                url = url + "&key=" + apiKey;
+            } else {
+                url = url + "?key=" + apiKey;
+            }
+        }
+        return url;
     }
 
 }
