@@ -52,6 +52,7 @@ import org.sead.uploader.util.Resource;
 import org.sead.uploader.util.ResourceFactory;
 
 import org.sead.uploader.AbstractUploader;
+import org.sead.uploader.util.UploaderException;
 
 /**
  * The SEAD Uploader supports the upload of files/directories from a local disk,
@@ -76,7 +77,9 @@ public class SEADUploader extends AbstractUploader {
 
     private static boolean d2a = false;
     private static String apiKey = null;
+    private static String knownId = null;
     private static String sead2datasetId = null;
+    private static int numFoundDatasets = 0;
 
     private static String CLOWDER_DEFAULT_VOCAB = "https://clowder.ncsa.illinois.edu/contexts/dummy";
 
@@ -90,7 +93,7 @@ public class SEADUploader extends AbstractUploader {
         println(" SS   EEE   AAAAA  D   D");
         println("   S  E     A   A  D  D");
         println("SSS   EEEE  A   A  DDD");
-        
+
         println("SEADUploader - a command-line application to upload files to any Clowder Dataset");
         println("Developed for the SEAD (https://sead-data.net) Community");
         println("\n----------------------------------------------------------------------------------\n");
@@ -107,16 +110,17 @@ public class SEADUploader extends AbstractUploader {
         println("\n***Execution Complete.***");
     }
 
-        private static void usage() {
+    private static void usage() {
         println("\nUsage:");
         println("  java -cp .;sead2.1.jar org.sead.uploader.clowder.SEADUploader -server=<serverURL> <files or directories>");
 
         println("\n  where:");
         println("      <serverUrl> = the URL of the server to upload to, e.g. https://sead2.ncsa.illinois.edu");
-        println("      <files or directories> = a space separated list of files to upload or directory name(s) where the files to upload are");
+        println("      <directories> = a space separated list of directory name(s) to upload as Dataset(s) containing the folders and files within them");
         println("\n  Optional Arguments:");
         println("      -key=<apiKey> - your personal apikey, created in the server at <serverUrl>");
         println("                    - using an apiKey avoids having to enter your username/password and having to reauthenticate for long upload runs");
+        println("      -id=<id>      - if you know a dataset exists, specifying it's id will improve performance");
         println("      -listonly     - Scan the Dataset and local files and list what would be uploaded (does not upload with this flag)");
         println("      -limit=<n>    - Specify a maximum number of files to upload per invocation.");
         println("      -verify       - Check both the file name and checksum in comparing with current Dataset entries.");
@@ -135,6 +139,10 @@ public class SEADUploader extends AbstractUploader {
         } else if (arg.startsWith("-key")) {
             apiKey = arg.substring(arg.indexOf(argSeparator) + 1);
             println("Using apiKey: " + apiKey);
+            return true;
+        } else if (arg.startsWith("-id")) {
+            knownId = arg.substring(arg.indexOf(argSeparator) + 1);
+            println("Updating Dataset with id: " + knownId);
             return true;
         }
         return false;
@@ -304,8 +312,13 @@ public class SEADUploader extends AbstractUploader {
             if (importRO && collectionId != null) {
                 Resource mdFile = new PublishedFolderProxyResource(
                         (PublishedResource) dir, collectionId);
-                String mdId = uploadDatafile(mdFile, path + "/"
-                        + mdFile.getName());
+                String mdId = null;
+                try {
+                    mdId = uploadDatafile(mdFile, path + "/"
+                            + mdFile.getName());
+                } catch (UploaderException ue) {
+                    println(ue.getMessage());
+                }
                 // By default, we are in a folder and need to move the file
                 // (sead2datasetId != collectionId))
                 if (mdId != null) { // and it was just
@@ -657,7 +670,11 @@ public class SEADUploader extends AbstractUploader {
         return me;
     }
 
-    protected String uploadDatafile(Resource file, String path) {
+    @Override
+    protected String uploadDatafile(Resource file, String path) throws UploaderException {
+        if (sead2datasetId == null) {
+            throw new UploaderException("SEAD2 does not support upload of individual files that are not in a dataset.");
+        }
         CloseableHttpClient httpclient = HttpClients.createDefault();
         String dataId = null;
         try {
@@ -1039,10 +1056,12 @@ public class SEADUploader extends AbstractUploader {
         return id;
     }
 
-    HashMap<String, String> existingItems = new HashMap<String, String>();
-    ;
-	 boolean fileMDRetrieved = false;
-    boolean datasetMDRetrieved = false;
+    HashMap<String, String> existingDatasets = new HashMap<String, String>();
+    HashMap<String, String> existingFolders = new HashMap<String, String>();
+    HashMap<String, String> existingFiles = new HashMap<String, String>();
+
+    boolean fileMDRetrieved = false;
+    boolean folderMDRetrieved = false;
 
     public String itemExists(String path, Resource item) {
         String tagId = null;
@@ -1057,49 +1076,70 @@ public class SEADUploader extends AbstractUploader {
                     .substring(relPath.substring(1).indexOf("/") + 1);
         }
         if (relPath.equals("/")) {
+            println("Searching for existing dataset. If this takes a long time, consider using:");
+            println("     -id=<id> if you know the dataset exists, or");
+            println("     -forcenew if you know the dataset does not yet exist.");
+
             // It's a dataset
             CloseableHttpClient httpclient = HttpClients.createDefault();
             String sourcepath = path + item.getName();
-            if (!datasetMDRetrieved) {
+            //If we haven't yet found this dataset because we haven't looked yet, or we looked and haven't yet found this dataset and there are still more to scan...
+            if (!existingDatasets.containsKey(sourcepath) && (numFoundDatasets == 0 || existingDatasets.size() < numFoundDatasets)) {
                 try {
                     // Only returns first 12 by default
                     String serviceUrl = server + "/api/datasets?limit=0";
-
-                    HttpGet httpget = new HttpGet(appendKeyIfUsed(serviceUrl));
-
-                    CloseableHttpResponse response = httpclient.execute(
-                            httpget, getLocalContext());
                     JSONArray datasetList = null;
-                    try {
-                        if (response.getStatusLine().getStatusCode() == 200) {
-                            HttpEntity resEntity = response.getEntity();
-                            if (resEntity != null) {
-                                datasetList = new JSONArray(
-                                        EntityUtils.toString(resEntity));
-                            }
-                        } else {
-                            println("Error response when checking for existing item at "
-                                    + sourcepath
-                                    + " : "
-                                    + response.getStatusLine()
-                                            .getReasonPhrase());
+                    HttpGet httpget = null;
+                    CloseableHttpResponse response = null;
+                    if (knownId == null) {
+                        //Get the whole list of datasets to scan through
+                        httpget = new HttpGet(appendKeyIfUsed(serviceUrl));
+                        response = httpclient.execute(
+                                httpget, getLocalContext());
+                        try {
+                            if (response.getStatusLine().getStatusCode() == 200) {
+                                HttpEntity resEntity = response.getEntity();
+                                if (resEntity != null) {
+                                    datasetList = new JSONArray(
+                                            EntityUtils.toString(resEntity));
+                                    println("Scanning " + datasetList.length() + " datasets for a match...");
+                                    numFoundDatasets = datasetList.length();
+                                }
+                            } else {
+                                println("Error response when checking for existing item at "
+                                        + sourcepath
+                                        + " : "
+                                        + response.getStatusLine()
+                                                .getReasonPhrase());
 
+                            }
+                        } finally {
+                            response.close();
                         }
-                    } finally {
-                        response.close();
+                    } else {
+                        //Add the one knownId to the dataset list
+                        //Note: the datasets in the list returned by Clowder also have a "name" entry, but we don't use this.
+                        datasetList = new JSONArray();
+                        JSONObject dataset = new JSONObject();
+                        dataset.put("id", knownId);
+                        datasetList.put(dataset);
                     }
                     if (datasetList != null) {
                         for (int i = 0; i < datasetList.length(); i++) {
                             String id = datasetList.getJSONObject(i)
                                     .getString("id");
+                            String dPath = null;
                             serviceUrl = server + "/api/datasets/" + id
                                     + "/metadata.jsonld";
+                            println(serviceUrl);
 
                             httpget = new HttpGet(appendKeyIfUsed(serviceUrl));
-
+                            if (i % 10 == 0) {
+                                //Give some indication of progress
+                                System.out.print(".");
+                            }
                             response = httpclient.execute(httpget,
                                     getLocalContext());
-
                             try {
                                 if (response.getStatusLine()
                                         .getStatusCode() == 200) {
@@ -1109,22 +1149,23 @@ public class SEADUploader extends AbstractUploader {
                                         JSONArray mdList = new JSONArray(
                                                 EntityUtils
                                                         .toString(resEntity));
+
                                         for (int j = 0; j < mdList.length(); j++) {
                                             if (mdList
                                                     .getJSONObject(j)
                                                     .getJSONObject(
                                                             "content")
                                                     .has("Upload Path")) {
-
-                                                existingItems
-                                                        .put(mdList
-                                                                .getJSONObject(
-                                                                        j)
-                                                                .getJSONObject(
-                                                                        "content")
-                                                                .getString(
-                                                                        "Upload Path")
-                                                                .trim(), id);
+                                                dPath = mdList
+                                                        .getJSONObject(
+                                                                j)
+                                                        .getJSONObject(
+                                                                "content")
+                                                        .getString(
+                                                                "Upload Path")
+                                                        .trim();
+                                                existingDatasets
+                                                        .put(dPath, id);
                                                 break;
                                             }
                                         }
@@ -1140,16 +1181,17 @@ public class SEADUploader extends AbstractUploader {
                             } finally {
                                 response.close();
                             }
+                            if (dPath != null && sourcepath.equals(dPath)) {
+                                //Only scan until we find the right dataset
+                                break;
+                            }
                         }
-
                     }
-
                 } catch (IOException e) {
                     println("Error processing check on " + sourcepath
                             + " : " + e.getMessage());
                 } finally {
                     try {
-                        datasetMDRetrieved = true;
                         httpclient.close();
                     } catch (IOException e) {
                         println("Couldn't close httpclient: "
@@ -1157,9 +1199,21 @@ public class SEADUploader extends AbstractUploader {
                     }
                 }
             }
-            if (existingItems.containsKey(sourcepath)) {
-                tagId = existingItems.get(sourcepath);
+            if (existingDatasets.containsKey(sourcepath)) {
+                //If we're looking for a dataset and found it, it's because we've started on a new dataset and need to get new folder/file info
+                tagId = existingDatasets.get(sourcepath);
                 sead2datasetId = tagId;
+                folderMDRetrieved = false;
+                fileMDRetrieved = false;
+                existingFiles = new HashMap<String, String>();
+                existingFolders = new HashMap<String, String>();
+            } else {
+                if (knownId != null) {
+                    //We should have found something - don't continue and create a new dataset
+                    println("Dataset with id=" + knownId + "and path: " + sourcepath + " not found.");
+                    println("Rerun without the -id flag to scan the entire repository or use -forcenew to force creation of a new dataset.");
+                    System.exit(1);
+                }
             }
 
         } else if (item.isDirectory()) {
@@ -1169,20 +1223,17 @@ public class SEADUploader extends AbstractUploader {
 				 * the dataset exists and the folder's relative path in the
 				 * dataset matches, we've found the folder.
              */
-            if (sead2datasetId != null) { // Can't be in a dataset if it
+            String sourcepath = relPath + item.getName().trim();
+            sourcepath = sourcepath.substring(sourcepath.substring(1)
+                    .indexOf("/") + 1);
+            if (sead2datasetId != null && !folderMDRetrieved) { // Can't be in a dataset if it
                 // wasn't found/created already
                 CloseableHttpClient httpclient = HttpClients
                         .createDefault();
-                String sourcepath = relPath + item.getName().trim();
-                sourcepath = sourcepath.substring(sourcepath.substring(1)
-                        .indexOf("/") + 1);
-
                 try {
                     String serviceUrl = server + "/api/datasets/"
                             + sead2datasetId + "/folders";
-
                     HttpGet httpget = new HttpGet(appendKeyIfUsed(serviceUrl));
-
                     CloseableHttpResponse response = httpclient.execute(
                             httpget, getLocalContext());
                     try {
@@ -1192,14 +1243,9 @@ public class SEADUploader extends AbstractUploader {
                                 JSONArray folders = new JSONArray(
                                         EntityUtils.toString(resEntity));
                                 for (int i = 0; i < folders.length(); i++) {
-                                    if (folders.getJSONObject(i)
-                                            .getString("name")
-                                            .equals(sourcepath)) {
-                                        tagId = folders.getJSONObject(i)
-                                                .getString("id");
-
-                                        break;
-                                    }
+                                    existingFolders.put(folders.getJSONObject(i)
+                                            .getString("name"), folders.getJSONObject(i)
+                                            .getString("id"));
                                 }
                             }
                         } else {
@@ -1218,12 +1264,17 @@ public class SEADUploader extends AbstractUploader {
                             + " : " + e.getMessage());
                 } finally {
                     try {
+                        folderMDRetrieved = true;
                         httpclient.close();
                     } catch (IOException e) {
                         println("Couldn't close httpclient: "
                                 + e.getMessage());
                     }
                 }
+            }
+            if (existingFolders.containsKey(sourcepath)) {
+                tagId = existingFolders.get(sourcepath);
+
             }
         } else {
             // A file
@@ -1289,7 +1340,7 @@ public class SEADUploader extends AbstractUploader {
                                                             "content")
                                                     .has("Upload Path")) {
 
-                                                existingItems
+                                                existingFiles
                                                         .put(mdList
                                                                 .getJSONObject(
                                                                         j)
@@ -1330,8 +1381,8 @@ public class SEADUploader extends AbstractUploader {
                     }
                 }
             }
-            if (existingItems.containsKey(sourcepath)) {
-                tagId = existingItems.get(sourcepath);
+            if (existingFiles.containsKey(sourcepath)) {
+                tagId = existingFiles.get(sourcepath);
             }
         }
 
@@ -1587,7 +1638,7 @@ public class SEADUploader extends AbstractUploader {
     }
 
     @Override
-    protected String preprocessCollection(Resource dir, String path, String parentId, String collectionId) {
+    protected String preprocessCollection(Resource dir, String path, String parentId, String collectionId) throws UploaderException {
         // SEAD2 - create the dataset or folder first before processing
         // children
         if (!listonly) {
@@ -1598,6 +1649,9 @@ public class SEADUploader extends AbstractUploader {
                 } else {
                     collectionId = create2Folder(parentId, sead2datasetId,
                             path, dir);
+                    if (collectionId == null) {
+                        throw new UploaderException("Failed to create Folder - will not process contents of :" + path);
+                    }
                 }
 
             } else {
@@ -1631,14 +1685,8 @@ public class SEADUploader extends AbstractUploader {
             // before
             if ((collectionId != null)
                     && (!sead2datasetId
-                            .equals(collectionId))) { // it's
-                // in
-                // a
-                // folder
-                // and
-                // not
-                // the
-                // dataset
+                            .equals(collectionId))) {
+                // it's in a folder and not the dataset
                 if (newUri != null) { // and it was just
                     // created
                     moveFileToFolder(newUri, collectionId,

@@ -442,7 +442,11 @@ public abstract class AbstractUploader {
         boolean created = false;
         if (!listonly) {
             if (dataId == null) { // doesn't exist or we don't care (!merge)
+                try {
                 dataId = uploadDatafile(file, path);
+                } catch (UploaderException ue) {
+                    println(ue.getMessage());
+                }
                 if (dataId != null) {
                     created = true;
                 }
@@ -485,7 +489,7 @@ public abstract class AbstractUploader {
 
     protected abstract HttpClientContext reauthenticate(long startTime);
 
-    protected abstract String uploadDatafile(Resource file, String path);
+    protected abstract String uploadDatafile(Resource file, String path) throws UploaderException;
 
     public String itemExists(String path, Resource item) {
         //Default is to report the item as not found
