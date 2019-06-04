@@ -3,7 +3,7 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>DVUploader</groupId>
     <artifactId>DVUploader</artifactId>
-    <version>1.0.2</version>
+    <version>1.0.3</version>
     <build>
         <sourceDirectory>src/main/java</sourceDirectory>
         <plugins>
@@ -68,12 +68,12 @@
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-core</artifactId>
-            <version>2.9.8</version>
+            <version>2.9.9</version>
         </dependency>
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
-            <version>2.9.8</version>
+            <version>2.9.9</version>
         </dependency>
         <dependency>
             <groupId>org.json</groupId>
