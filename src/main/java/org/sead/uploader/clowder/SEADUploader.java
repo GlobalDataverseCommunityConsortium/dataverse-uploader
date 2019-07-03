@@ -19,12 +19,19 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
+import java.security.KeyManagementException;
+import java.security.KeyStoreException;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+import javax.net.ssl.HostnameVerifier;
+import javax.net.ssl.SSLContext;
 
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.http.Consts;
@@ -35,6 +42,9 @@ import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.client.methods.HttpPut;
 import org.apache.http.client.protocol.HttpClientContext;
+import org.apache.http.conn.ssl.SSLConnectionSocketFactory;
+import org.apache.http.conn.ssl.TrustAllStrategy;
+import org.apache.http.ssl.SSLContextBuilder;
 import org.apache.http.entity.ContentType;
 import org.apache.http.entity.StringEntity;
 import org.apache.http.entity.mime.MultipartEntityBuilder;
@@ -78,6 +88,7 @@ public class SEADUploader extends AbstractUploader {
     private static boolean d2a = false;
     private static String apiKey = null;
     private static String knownId = null;
+    private static boolean checkDataset = false;
     private static String sead2datasetId = null;
     private static int numFoundDatasets = 0;
 
@@ -103,6 +114,9 @@ public class SEADUploader extends AbstractUploader {
         if (server == null || requests.isEmpty()) {
             println("\n***Required arguments not found.***");
             usage();
+        } else if(checkDataset) {
+          ((SEADUploader)uploader).checkTheDataset();
+          
         } else {
             println("\n***Starting to Process Upload Requests:***\n");
             uploader.processRequests();
@@ -131,6 +145,239 @@ public class SEADUploader extends AbstractUploader {
 
     }
 
+    private void checkTheDataset() {
+        if (knownId == null) {
+            println("CheckId only works with knownId - exiting");
+            System.exit(0);
+        }
+        int goodFiles=0;
+        String dPath = null;
+        CloseableHttpResponse response = null;
+        String serviceUrl = "";
+        try {
+            CloseableHttpClient httpclient = getSharedHttpClient();
+
+            serviceUrl = server + "/api/datasets/" + knownId
+                    + "/metadata.jsonld";
+            println(serviceUrl);
+
+            HttpGet httpget = new HttpGet(appendKeyIfUsed(serviceUrl));
+            response = httpclient.execute(httpget,
+                    getLocalContext());
+            try {
+                if (response.getStatusLine()
+                        .getStatusCode() == 200) {
+                    HttpEntity resEntity = response
+                            .getEntity();
+                    if (resEntity != null) {
+                        JSONArray mdList = new JSONArray(
+                                EntityUtils
+                                        .toString(resEntity));
+
+                        for (int j = 0; j < mdList.length(); j++) {
+                            if (mdList
+                                    .getJSONObject(j)
+                                    .getJSONObject(
+                                            "content")
+                                    .has("Upload Path")) {
+                                dPath = mdList
+                                        .getJSONObject(
+                                                j)
+                                        .getJSONObject(
+                                                "content")
+                                        .getString(
+                                                "Upload Path")
+                                        .trim();
+                                existingDatasets
+                                        .put(dPath, knownId);
+                                break;
+                            }
+                        }
+                    }
+                } else {
+                    println("Error response when getting metadata for dataset: "
+                            + knownId
+                            + " : "
+                            + response.getStatusLine()
+                                    .getReasonPhrase());
+                    println("Exiting. Please contact SEAD about the error.");
+                    System.exit(1);
+
+                }
+            } finally {
+                try {
+                    response.close();
+                } catch (IOException ex) {
+                    Logger.getLogger(SEADUploader.class.getName()).log(Level.SEVERE, null, ex);
+                }
+            }
+            if (dPath == null) {
+                println("Dataset: " + knownId + " does not have an Upload Path");
+                System.exit(0);
+            }
+
+            
+            existingFiles = new HashMap<String, String>();
+            existingFolders = new HashMap<String, String>();
+            try {
+                try {
+                    serviceUrl = server + "/api/datasets/"
+                            + knownId + "/folders";
+                    httpget = new HttpGet(appendKeyIfUsed(serviceUrl));
+                    response = httpclient.execute(
+                            httpget, getLocalContext());
+                    if (response.getStatusLine().getStatusCode() == 200) {
+                        HttpEntity resEntity = response.getEntity();
+                        if (resEntity != null) {
+                            JSONArray folders = new JSONArray(
+                                    EntityUtils.toString(resEntity));
+                            for (int i = 0; i < folders.length(); i++) {
+                                existingFolders.put(folders.getJSONObject(i)
+                                        .getString("name"), folders.getJSONObject(i)
+                                        .getString("id"));
+                            }
+                        }
+                    } else {
+                        println("Error response when checking for folders"
+                                + " : "
+                                + response.getStatusLine()
+                                        .getReasonPhrase());
+                        println("Exiting. Please contact SEAD about the error.");
+                        System.exit(1);
+
+                    }
+                } finally {
+                    response.close();
+                }
+            } catch (IOException e) {
+                println("Error processing folders: " + e.getMessage());
+            } finally {
+                folderMDRetrieved = true;
+            }
+
+            try {
+                serviceUrl = server + "/api/datasets/"
+                        + knownId + "/listAllFiles";
+
+                httpget = new HttpGet(appendKeyIfUsed(serviceUrl));
+
+                response = httpclient.execute(
+                        httpget, getLocalContext());
+                JSONArray fileList = null;
+                try {
+                    if (response.getStatusLine().getStatusCode() == 200) {
+                        HttpEntity resEntity = response.getEntity();
+                        if (resEntity != null) {
+                            fileList = new JSONArray(
+                                    EntityUtils.toString(resEntity));
+                        }
+                    } else {
+                        println("Error response when checking files"
+                                + " : "
+                                + response.getStatusLine()
+                                        .getReasonPhrase());
+                        println("Exiting. Please contact SEAD about the error.");
+                        System.exit(1);
+
+                    }
+                } finally {
+                    response.close();
+                }
+                if (fileList != null) {
+                    for (int i = 0; i < fileList.length(); i++) {
+                        String id = fileList.getJSONObject(i)
+                                .getString("id");
+                        serviceUrl = server + "/api/files/" + id
+                                + "/metadata.jsonld";
+
+                        httpget = new HttpGet(appendKeyIfUsed(serviceUrl));
+
+                        response = httpclient.execute(httpget,
+                                getLocalContext());
+
+                        try {
+                            if (response.getStatusLine()
+                                    .getStatusCode() == 200) {
+                                HttpEntity resEntity = response
+                                        .getEntity();
+                                if (resEntity != null) {
+                                    JSONArray mdList = new JSONArray(
+                                            EntityUtils
+                                                    .toString(resEntity));
+                                    boolean hasPath = false;
+                                    for (int j = 0; j < mdList.length(); j++) {
+                                        if (mdList
+                                                .getJSONObject(j)
+                                                .getJSONObject(
+                                                        "content")
+                                                .has("Upload Path")) {
+                                            String path = mdList
+                                                    .getJSONObject(
+                                                            j)
+                                                    .getJSONObject(
+                                                            "content")
+                                                    .getString(
+                                                            "Upload Path")
+                                                    .trim();
+                                            if (existingFiles.containsKey(path)) {
+                                                println(id + " duplicates " + existingFiles.get(path));
+                                            } else {
+                                                String folderPath = path.substring(1,path.lastIndexOf("/"));
+                                                if(folderPath.indexOf("/")>=0) {
+                                                folderPath = folderPath.substring(folderPath.indexOf("/"));
+                                                } else {
+                                                    folderPath="";
+                                                }
+                                                if (folderPath.length()>0 && !existingFolders.containsKey(folderPath)) {
+                                                    println("Folder for " + path + " not found");
+                                                } else {
+
+                                                    existingFiles
+                                                            .put(path, id);
+                                                    goodFiles++;
+                                                    if (goodFiles % 10 == 0) {
+                                                        System.out.print(".");
+                                                    }
+                                                    if (goodFiles % 1000 == 0) {
+                                                        System.out.print("Processed " + goodFiles + " good files.");
+                                                    }
+
+                                                }
+                                            }
+                                            hasPath = true;
+                                            break;
+                                        }
+                                    }
+                                    if (!hasPath) {
+                                        println("File with no path: " + id);
+                                    }
+                                }
+
+                            } else {
+                                println("Error response when getting metadata for file: "
+                                        + id
+                                        + " : "
+                                        + response.getStatusLine()
+                                                .getReasonPhrase());
+                                println("Exiting. Please contact SEAD about the error.");
+                                System.exit(1);
+                            }
+                        } finally {
+                            response.close();
+                        }
+                    }
+
+                }
+            } finally {
+                response.close();
+                httpclient.close();
+            }
+        } catch (IOException io) {
+            println("Error doing " + serviceUrl + " : " + io.getMessage());
+        }
+        println("Analysis complete with " + goodFiles + " good files.");
+    }
+
     public boolean parseCustomArg(String arg) {
         if (arg.equalsIgnoreCase("-d2a")) {
             d2a = true;
@@ -144,10 +391,57 @@ public class SEADUploader extends AbstractUploader {
             knownId = arg.substring(arg.indexOf(argSeparator) + 1);
             println("Updating Dataset with id: " + knownId);
             return true;
+        } else if(arg.startsWith("-checkDataset")) {
+            checkDataset=true;
+            println("Only checking Dataset");
+            return true;
         }
         return false;
     }
 
+    CloseableHttpClient httpClient = null;
+
+    public CloseableHttpClient getSharedHttpClient() {
+        if (httpClient == null) {
+            // use the TrustSelfSignedStrategy to allow Self Signed Certificates
+            SSLContext sslContext;
+            try {
+                sslContext = SSLContextBuilder
+                        .create()
+                        .loadTrustMaterial(new TrustAllStrategy())
+                        .build();
+
+                // create an SSL Socket Factory to use the SSLContext with the trust self signed certificate strategy
+                // and allow all hosts verifier.
+                SSLConnectionSocketFactory connectionFactory = new SSLConnectionSocketFactory(sslContext);
+
+                // finally create the HttpClient using HttpClient factory methods and assign the ssl socket factory
+                httpClient = HttpClients
+                        .custom()
+                        .setSSLSocketFactory(connectionFactory)
+                        .build();
+            } catch (NoSuchAlgorithmException | KeyStoreException | KeyManagementException ex) {
+                Logger.getLogger(SEADUploader.class.getName()).log(Level.SEVERE, null, ex);
+            }
+        }
+        return httpClient;
+    }
+
+    @Override
+    public void processRequests() {
+        println("Contacting server...");
+        getSharedHttpClient();
+        super.processRequests();
+        println("Closing server connection...");
+
+        try {
+            getSharedHttpClient().close();
+        } catch (IOException ex) {
+            Logger.getLogger(SEADUploader.class.getName()).log(Level.SEVERE, null, ex);
+        }
+    }
+
+    @Override
     public HttpClientContext authenticate() {
         if (apiKey != null) {
             //Don't need to update context since we have the apikey to use
@@ -163,7 +457,7 @@ public class SEADUploader extends AbstractUploader {
 
     private void moveFileToFolder(String newUri, String parentId,
             Resource file) {
-        CloseableHttpClient httpclient = HttpClients.createDefault();
+        CloseableHttpClient httpclient = getSharedHttpClient();
         try {
             HttpPost httppost = new HttpPost(appendKeyIfUsed(server + "/api/datasets/"
                     + sead2datasetId + "/moveFile/" + parentId + "/" + newUri));
@@ -199,20 +493,13 @@ public class SEADUploader extends AbstractUploader {
         } catch (IOException e) {
             println("Error processing " + file.getAbsolutePath() + " : "
                     + e.getMessage());
-        } finally {
-            try {
-                httpclient.close();
-            } catch (IOException e) {
-                println("Couldn't close connection for file: "
-                        + file.getAbsolutePath() + " : " + e.getMessage());
-            }
         }
     }
 
     private String create2Folder(String parentId, String sead2datasetId,
             String path, Resource dir) {
         String collectionId = null;
-        CloseableHttpClient httpclient = HttpClients.createDefault();
+        CloseableHttpClient httpclient = getSharedHttpClient();
         try {
             String postUri = server + "/api/datasets/"
                     + sead2datasetId + "/newFolder";
@@ -333,13 +620,6 @@ public class SEADUploader extends AbstractUploader {
         } catch (IOException e) {
             println("Error processing " + dir.getAbsolutePath() + " : "
                     + e.getMessage());
-        } finally {
-            try {
-                httpclient.close();
-            } catch (IOException e) {
-                println("Couldn't close connection for file: "
-                        + dir.getAbsolutePath() + " : " + e.getMessage());
-            }
         }
         return collectionId;
 
@@ -347,7 +627,7 @@ public class SEADUploader extends AbstractUploader {
 
     private String create2Dataset(Resource dir, String path) {
         String datasetId = null;
-        CloseableHttpClient httpclient = HttpClients.createDefault();
+        CloseableHttpClient httpclient = getSharedHttpClient();
         try {
 
             HttpPost httppost = new HttpPost(appendKeyIfUsed(server
@@ -497,13 +777,6 @@ public class SEADUploader extends AbstractUploader {
         } catch (IOException e) {
             println("Error processing " + dir.getAbsolutePath() + " : "
                     + e.getMessage());
-        } finally {
-            try {
-                httpclient.close();
-            } catch (IOException e) {
-                println("Couldn't close connection for file: "
-                        + dir.getAbsolutePath() + " : " + e.getMessage());
-            }
         }
         return datasetId;
     }
@@ -634,7 +907,7 @@ public class SEADUploader extends AbstractUploader {
     JSONObject me = null;
 
     private JSONObject get2me() {
-        CloseableHttpClient httpclient = HttpClients.createDefault();
+        CloseableHttpClient httpclient = getSharedHttpClient();
         if (me == null) {
             try {
                 String serviceUrl = server + "/api/me";
@@ -658,12 +931,6 @@ public class SEADUploader extends AbstractUploader {
                 }
             } catch (IOException e) {
                 println("Error processing get user request: " + e.getMessage());
-            } finally {
-                try {
-                    httpclient.close();
-                } catch (IOException e) {
-                    println("Couldn't close httpclient: " + e.getMessage());
-                }
             }
             // me.put("fullName", "SEAD 1.5 Importer");
         }
@@ -675,7 +942,7 @@ public class SEADUploader extends AbstractUploader {
         if (sead2datasetId == null) {
             throw new UploaderException("SEAD2 does not support upload of individual files that are not in a dataset.");
         }
-        CloseableHttpClient httpclient = HttpClients.createDefault();
+        CloseableHttpClient httpclient = getSharedHttpClient();
         String dataId = null;
         try {
             // FixMe: requires update to 2.0 ... To support long uploads,
@@ -726,9 +993,9 @@ public class SEADUploader extends AbstractUploader {
                 // FixMe - add Metadata
                 /*
 				 * addLiteralMetadata(meb, FRBR_EO, path);
-				 * 
+				 *
 				 * // Add metadata for published resources
-				 * 
+				 *
 				 * String tagValues = addResourceMetadata(meb, dir); HttpEntity
 				 * reqEntity = meb.build();
                  */
@@ -910,13 +1177,6 @@ public class SEADUploader extends AbstractUploader {
         } catch (IOException e) {
             println("Error processing " + file.getAbsolutePath() + " : "
                     + e.getMessage());
-        } finally {
-            try {
-                httpclient.close();
-            } catch (IOException e) {
-                println("Couldn't close connection for file: "
-                        + file.getAbsolutePath() + " : " + e.getMessage());
-            }
         }
         return dataId;
     }
@@ -1081,7 +1341,7 @@ public class SEADUploader extends AbstractUploader {
             println("     -forcenew if you know the dataset does not yet exist.");
 
             // It's a dataset
-            CloseableHttpClient httpclient = HttpClients.createDefault();
+            CloseableHttpClient httpclient = getSharedHttpClient();
             String sourcepath = path + item.getName();
             //If we haven't yet found this dataset because we haven't looked yet, or we looked and haven't yet found this dataset and there are still more to scan...
             if (!existingDatasets.containsKey(sourcepath) && (numFoundDatasets == 0 || existingDatasets.size() < numFoundDatasets)) {
@@ -1111,6 +1371,8 @@ public class SEADUploader extends AbstractUploader {
                                         + " : "
                                         + response.getStatusLine()
                                                 .getReasonPhrase());
+                                println("Exiting to prevent duplicates. Please contact SEAD about the error.");
+                                System.exit(1);
 
                             }
                         } finally {
@@ -1176,6 +1438,8 @@ public class SEADUploader extends AbstractUploader {
                                             + " : "
                                             + response.getStatusLine()
                                                     .getReasonPhrase());
+                                    println("Exiting to prevent duplicates. Please contact SEAD about the error.");
+                                    System.exit(1);
 
                                 }
                             } finally {
@@ -1190,13 +1454,6 @@ public class SEADUploader extends AbstractUploader {
                 } catch (IOException e) {
                     println("Error processing check on " + sourcepath
                             + " : " + e.getMessage());
-                } finally {
-                    try {
-                        httpclient.close();
-                    } catch (IOException e) {
-                        println("Couldn't close httpclient: "
-                                + e.getMessage());
-                    }
                 }
             }
             if (existingDatasets.containsKey(sourcepath)) {
@@ -1228,8 +1485,7 @@ public class SEADUploader extends AbstractUploader {
                     .indexOf("/") + 1);
             if (sead2datasetId != null && !folderMDRetrieved) { // Can't be in a dataset if it
                 // wasn't found/created already
-                CloseableHttpClient httpclient = HttpClients
-                        .createDefault();
+                CloseableHttpClient httpclient = getSharedHttpClient();
                 try {
                     String serviceUrl = server + "/api/datasets/"
                             + sead2datasetId + "/folders";
@@ -1254,6 +1510,8 @@ public class SEADUploader extends AbstractUploader {
                                     + " : "
                                     + response.getStatusLine()
                                             .getReasonPhrase());
+                            println("Exiting to prevent duplicates. Please contact SEAD about the error.");
+                            System.exit(1);
 
                         }
                     } finally {
@@ -1263,13 +1521,7 @@ public class SEADUploader extends AbstractUploader {
                     println("Error processing check on " + sourcepath
                             + " : " + e.getMessage());
                 } finally {
-                    try {
-                        folderMDRetrieved = true;
-                        httpclient.close();
-                    } catch (IOException e) {
-                        println("Couldn't close httpclient: "
-                                + e.getMessage());
-                    }
+                    folderMDRetrieved = true;
                 }
             }
             if (existingFolders.containsKey(sourcepath)) {
@@ -1283,8 +1535,7 @@ public class SEADUploader extends AbstractUploader {
             if (sead2datasetId != null && !fileMDRetrieved) {
                 // One-time retrieval of all file id/Upload Path info
 
-                CloseableHttpClient httpclient = HttpClients
-                        .createDefault();
+                CloseableHttpClient httpclient = getSharedHttpClient();
                 try {
                     String serviceUrl = server + "/api/datasets/"
                             + sead2datasetId + "/listAllFiles";
@@ -1307,6 +1558,8 @@ public class SEADUploader extends AbstractUploader {
                                     + " : "
                                     + response.getStatusLine()
                                             .getReasonPhrase());
+                            println("Exiting to prevent duplicates. Please contact SEAD about the error.");
+                            System.exit(1);
 
                         }
                     } finally {
@@ -1359,6 +1612,8 @@ public class SEADUploader extends AbstractUploader {
                                             + " : "
                                             + response.getStatusLine()
                                                     .getReasonPhrase());
+                                    println("Exiting to prevent duplicates. Please contact SEAD about the error.");
+                                    System.exit(1);
 
                                 }
                             } finally {
@@ -1372,13 +1627,7 @@ public class SEADUploader extends AbstractUploader {
                     println("Error processing check on " + sourcepath
                             + " : " + e.getMessage());
                 } finally {
-                    try {
-                        fileMDRetrieved = true;
-                        httpclient.close();
-                    } catch (IOException e) {
-                        println("Couldn't close httpclient: "
-                                + e.getMessage());
-                    }
+                    fileMDRetrieved = true;
                 }
             }
             if (existingFiles.containsKey(sourcepath)) {
@@ -1398,7 +1647,7 @@ public class SEADUploader extends AbstractUploader {
             Resource item) {
 
         String serviceUrl;
-        CloseableHttpClient httpclient = HttpClients.createDefault();
+        CloseableHttpClient httpclient = getSharedHttpClient();
 
         try {
             // Work-around - our sead2 servers have issues with incorrect or
@@ -1423,7 +1672,7 @@ public class SEADUploader extends AbstractUploader {
 							 * if (hashtype != null) { if
 							 * (hashtype.equals("SHA1 Hash")) { realHash =
 							 * DigestUtils.sha1Hex(inputStream);
-							 * 
+							 *
 							 * } else if (hashtype.equals("SHA512 Hash")) {
 							 * realHash = DigestUtils.sha512Hex(inputStream); }
                          */
@@ -1458,7 +1707,7 @@ public class SEADUploader extends AbstractUploader {
 				 * serviceUrl = server + "/api/files/" +
 				 * URLEncoder.encode(tagId, "UTF-8") + "/metadata.jsonld";
 				 * HttpGet httpget = new HttpGet(serviceUrl);
-				 * 
+				 *
 				 * CloseableHttpResponse response = httpclient.execute(httpget,
 				 * getLocalContext()); try { if
 				 * (response.getStatusLine().getStatusCode() == 200) {
@@ -1480,7 +1729,7 @@ public class SEADUploader extends AbstractUploader {
 				 * println("Error response while verifying " +
 				 * item.getAbsolutePath() + " : " +
 				 * response.getStatusLine().getReasonPhrase());
-				 * 
+				 *
 				 * } } finally { response.close(); }
              */
 
@@ -1491,12 +1740,6 @@ public class SEADUploader extends AbstractUploader {
         } catch (IOException e) {
             println("Error processing verify on " + item.getAbsolutePath()
                     + " : " + e.getMessage());
-        } finally {
-            try {
-                httpclient.close();
-            } catch (IOException e) {
-                println("Couldn't close httpclient: " + e.getMessage());
-            }
         }
         return tagId;
     }
@@ -1607,8 +1850,7 @@ public class SEADUploader extends AbstractUploader {
         }
         if (type.equals("datasets")
                 || newSubject.equals(sead2datasetId)) {
-            CloseableHttpClient httpclient = HttpClients
-                    .createDefault();
+            CloseableHttpClient httpclient = getSharedHttpClient();
 
             String uri = server
                     + "/api/"
@@ -1698,8 +1940,7 @@ public class SEADUploader extends AbstractUploader {
             // folder or not...
             if (!sead2datasetId.equals(existingUri)) {
 
-                CloseableHttpClient httpclient = HttpClients
-                        .createDefault();
+                CloseableHttpClient httpclient = getSharedHttpClient();
 
                 HttpGet httpget = new HttpGet(appendKeyIfUsed(server
                         + "/api/datasets/" + sead2datasetId

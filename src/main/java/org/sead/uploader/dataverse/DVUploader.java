@@ -16,12 +16,13 @@
 package org.sead.uploader.dataverse;
 
 import java.io.IOException;
-import java.net.URL;
 import java.util.HashMap;
 import java.util.concurrent.TimeUnit;
 
 import org.apache.http.HttpEntity;
 import org.apache.http.client.ClientProtocolException;
+import org.apache.http.client.config.CookieSpecs;
+import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpPost;
@@ -156,7 +157,10 @@ public class DVUploader extends AbstractUploader {
         // One-time: get metadata for dataset to see if it exists and what files it
         // contains
         if (!datasetMDRetrieved) {
-            httpclient = HttpClients.createDefault();
+            httpclient = HttpClients.custom()
+                    .setDefaultRequestConfig(RequestConfig.custom()
+                            .setCookieSpec(CookieSpecs.STANDARD).build())
+                    .build();
 
             try {
                 // This api call will find the dataset and, if found, retrieve the list of files
@@ -313,7 +317,10 @@ public class DVUploader extends AbstractUploader {
     @Override
     protected String uploadDatafile(Resource file, String path) {
         if (httpclient == null) {
-            httpclient = HttpClients.createDefault();
+            httpclient = HttpClients.custom()
+                    .setDefaultRequestConfig(RequestConfig.custom()
+                            .setCookieSpec(CookieSpecs.STANDARD).build())
+                    .build();
         }
         String dataId = null;
         int retry = 10;
@@ -330,6 +337,14 @@ public class DVUploader extends AbstractUploader {
 
                 MultipartEntityBuilder meb = MultipartEntityBuilder.create();
                 meb.addPart("file", bin);
+                if(recurse) {
+                    // Dataverse takes paths without an initial / and ending without a /
+                    // with the path not including the file name
+                    String parentPath = path.substring(1,path.lastIndexOf("/"));
+                    if(!parentPath.isEmpty()) {
+                        meb.addTextBody("jsonData", "{\"directoryLabel\":\"" + parentPath +"\"}");
+                    }
+                }
 
                 HttpEntity reqEntity = meb.build();
                 httppost.setEntity(reqEntity);
@@ -399,7 +414,10 @@ public class DVUploader extends AbstractUploader {
 
     private boolean isLocked() {
         if (httpclient == null) {
-            httpclient = HttpClients.createDefault();
+            httpclient = HttpClients.custom()
+                    .setDefaultRequestConfig(RequestConfig.custom()
+                            .setCookieSpec(CookieSpecs.STANDARD).build())
+                    .build();
         }
         try {
             String urlString = server + "/api/datasets/:persistentId/locks";
