@@ -1,6 +1,6 @@
 # dataverse-uploader
 
-DVUploader, a Command-line Bulk Uploader for Dataverse
+DVUploader, a Command-line Bulk Uploader for Dataverse and SEAD/Clowder (see link below)
 
 Motivation:
 
@@ -15,6 +15,7 @@ The Dataverse community has a number of initiatives underway to support upload o
 
 The DVUploader does need to be installed and, as a command-line tool, may not be as intuitive as the Dataverse web interface. However, unlike other bulk tools being developed, it will work with any Dataverse installation without any server-side changes. (Since it does upload and store data via Dataverse, it shares the basic performance and performance limitations of Dataverse's web interface. Other tools bypass Dataverse to handle larger data or do not move data from their remote locations and simply reference it in a Dataverse Dataset.) DVUploader can thus be a useful tool for individuals and for Dataverse installations interested in supporting larger numbers of files.
 
+For Clowder/SEAD-specific information, see https://opensource.ncsa.illinois.edu/confluence/display/SEAD/SEADUploader%3A+Using+SEAD%27s+API+for+bulk+uploads+and+application+integration
 
 Build:
 
