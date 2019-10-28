@@ -16,6 +16,8 @@
 
 package org.sead.uploader.util;
 
+import java.io.InputStream;
+
 import org.apache.http.entity.mime.content.ContentBody;
 import org.json.JSONObject;
 
@@ -32,11 +34,15 @@ public interface Resource extends Iterable<Resource> {
 	String getAbsolutePath();
 
 	ContentBody getContentBody();
+	
+	InputStream getInputStream();
 
 	Iterable<Resource> listResources();
 
 	String getHash(String algorithm);
 	
 	JSONObject getMetadata();
+
+	String getMimeType();
 
 }

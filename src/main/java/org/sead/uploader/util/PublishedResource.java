@@ -16,6 +16,7 @@
 package org.sead.uploader.util;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.ArrayList;
@@ -79,7 +80,7 @@ public class PublishedResource implements Resource {
 																		// mimetype
 																		// for
 																		// the
-																		// uplaoded
+																		// uploaded
 																		// file
 
 		}
@@ -268,6 +269,25 @@ public class PublishedResource implements Resource {
 			e.printStackTrace();
 		} catch (JSONException e) {
 			e.printStackTrace();
+		} catch (IOException e) {
+			e.printStackTrace();
+		} catch (URISyntaxException e) {
+			e.printStackTrace();
+		}
+		return null;
+	}
+	
+	@Override
+	public InputStream getInputStream() {
+		// While space and / etc. are already encoded, the quote char is not and
+		// it is not a valid char
+		// Fix Me - identify additional chars that need to be encoded...
+		String uri = resource.getString("similarTo").replace("\"", "%22").replace(";", "%3b");
+
+		try {
+			HttpEntity entity = myFactory.getURI(new URI(uri));
+			return entity.getContent();
+					
 		} catch (IOException e) {
 			e.printStackTrace();
 		} catch (URISyntaxException e) {
@@ -510,5 +530,13 @@ public class PublishedResource implements Resource {
 			}
 			resource.remove("Creator");
 		}
+	}
+
+	@Override
+	public String getMimeType() {
+		if (resource.has("MimeType")) {
+			return resource.getString("MimeType");
+		}
+		return null;
 	}
 }
