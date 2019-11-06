@@ -21,4 +21,4 @@ Build:
 
  maven clean compile assembly:single
  
- Usage: See wiki
+ Usage: See wiki: https://github.com/IQSS/dataverse-uploader/wiki/DVUploader,-a-Command-line-Bulk-Uploader-for-Dataverse
