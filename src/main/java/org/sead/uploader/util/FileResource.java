@@ -121,7 +121,8 @@ public class FileResource implements Resource {
 
 	@Override
 	public InputStream getInputStream() {
-		try (InputStream is = new FileInputStream(f);) {
+		try {
+                    InputStream is = new FileInputStream(f);
 			return is;
 		} catch (FileNotFoundException e) {
 			e.printStackTrace();
