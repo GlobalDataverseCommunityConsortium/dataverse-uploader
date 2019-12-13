@@ -17,7 +17,7 @@ package org.sead.uploader.dataverse;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.PipedInputStream;
+import java.net.URL;
 import java.security.DigestInputStream;
 import java.security.KeyManagementException;
 import java.security.KeyStoreException;
@@ -43,6 +43,7 @@ import org.apache.http.client.protocol.HttpClientContext;
 import org.apache.http.conn.ssl.NoopHostnameVerifier;
 import org.apache.http.conn.ssl.SSLConnectionSocketFactory;
 import org.apache.http.conn.ssl.TrustAllStrategy;
+import org.apache.http.entity.BufferedHttpEntity;
 import org.apache.http.entity.InputStreamEntity;
 import org.apache.http.entity.mime.MultipartEntityBuilder;
 import org.apache.http.entity.mime.content.ContentBody;
@@ -53,7 +54,6 @@ import org.apache.http.util.EntityUtils;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.sead.uploader.AbstractUploader;
-import org.sead.uploader.clowder.SEADUploader;
 import org.sead.uploader.util.UploaderException;
 import org.sead.uploader.util.Resource;
 
@@ -169,7 +169,7 @@ public class DVUploader extends AbstractUploader {
     					.setDefaultRequestConfig(RequestConfig.custom().setCookieSpec(CookieSpecs.STANDARD).build())
     					.build();
             } catch (NoSuchAlgorithmException | KeyStoreException | KeyManagementException ex) {
-                Logger.getLogger(SEADUploader.class.getName()).log(Level.SEVERE, null, ex);
+                Logger.getLogger(DVUploader.class.getName()).log(Level.SEVERE, null, ex);
             }
         }
         return httpclient;
@@ -376,136 +376,167 @@ public class DVUploader extends AbstractUploader {
 
 				// Now post data
 				String urlString = server + "/api/datasets/:persistentId/uploadsid";
-				urlString = urlString + "?persistentId=" + datasetPID + "&key=" + apiKey;
+				urlString = urlString + "?persistentId=doi:" + datasetPID.substring(4) + "&key=" + apiKey;
 				HttpGet httpget = new HttpGet(urlString);
 				CloseableHttpResponse response = httpclient.execute(httpget, getLocalContext());
 				try {
 					int status = response.getStatusLine().getStatusCode();
 					String uploadUrl = null;
+					String jsonResponse = null;
 					HttpEntity resEntity = response.getEntity();
 					if (resEntity != null) {
-						 String putRes= EntityUtils.toString(resEntity);
-						uploadUrl = (new JSONObject(putRes)).getJSONObject("data").getString("message");
+						jsonResponse = EntityUtils.toString(resEntity);
 					}
 					if (status == 200) {
-println("Url: " + uploadUrl);
+						uploadUrl = (new JSONObject(jsonResponse)).getJSONObject("data").getString("message");
+						println("Put to: " + uploadUrl);
 						HttpPut httpput = new HttpPut(uploadUrl);
-						
-	                    MessageDigest messageDigest = MessageDigest.getInstance("MD5");
-	                    try (InputStream inStream = file.getInputStream(); DigestInputStream digestInputStream = new DigestInputStream(inStream, messageDigest)) {
-	                    	
-						
-						httpput.setEntity(new InputStreamEntity(digestInputStream));
-						println("File length: " + file.length());
+						MessageDigest messageDigest = MessageDigest.getInstance("MD5");
+						println(file.getAbsolutePath() + " " + file.length());
+
+						try (InputStream inStream = file.getInputStream(); DigestInputStream digestInputStream = new DigestInputStream(inStream, messageDigest)) {
 
 
-						println("Ready");
-						CloseableHttpResponse putResponse = httpclient.execute(httpput, getLocalContext());
-						try {
-							int putStatus = putResponse.getStatusLine().getStatusCode();
-							println("Status " + putStatus);
-							String putRes = null;
-							HttpEntity putEntity = putResponse.getEntity();
-							if (putEntity != null) {
-								putRes = EntityUtils.toString(putEntity);
-								println(putRes);
-							}
-							if (putStatus == 200) {
-
-								String localchecksum = Hex.encodeHexString(digestInputStream.getMessageDigest().digest());
-								// Now post data
-								urlString = server + "/api/datasets/:persistentId/add";
-								urlString = urlString + "?persistentId=" + datasetPID + "&key=" + apiKey;
-								HttpPost httppost = new HttpPost(urlString);
-
-								// ContentBody bin = file.getContentBody();
-
-								MultipartEntityBuilder meb = MultipartEntityBuilder.create();
-								// meb.addPart("file", bin);
-								String jsonData = "{\"storageIdentifier\":\"" + uploadUrl + "\",\"fileName\":\""
-										+ file.getName() + "\",\"mimeType\":\"" + file.getMimeType() + "\",\"md5Hash\":\"" +localchecksum + "\"";
-								if (recurse) {
-									// Dataverse takes paths without an initial / and ending without a /
-									// with the path not including the file name
-									String parentPath = path.substring(1, path.lastIndexOf("/"));
-									jsonData = jsonData
-											+ (!parentPath.isEmpty() ? ",\"directoryLabel\":\"" + parentPath + "\"}"
-													: "}");
-									meb.addTextBody("jsonData", jsonData);
-
+							println("Set S3 entity");
+							httpput.setEntity(new BufferedHttpEntity(new InputStreamEntity(digestInputStream, file.length())));
+							println("Calling S3");
+							CloseableHttpResponse putResponse = httpclient.execute(httpput);
+							try {
+								int putStatus = putResponse.getStatusLine().getStatusCode();
+								println("Status " + putStatus);
+								String putRes = null;
+								HttpEntity putEntity = putResponse.getEntity();
+								if (putEntity != null) {
+									putRes = EntityUtils.toString(putEntity);
+									println(putRes);
 								}
+								if (putStatus == 200) {
+									println("S3 Success");
+									String localchecksum = Hex.encodeHexString(digestInputStream.getMessageDigest().digest());
+									println("Checksum: " + localchecksum);
+									// Now post data
+									urlString = server + "/api/datasets/:persistentId/add";
+									urlString = urlString + "?persistentId=" + datasetPID + "&key=" + apiKey;
+									HttpPost httppost = new HttpPost(urlString);
 
-								HttpEntity reqEntity = meb.build();
-								httppost.setEntity(reqEntity);
+									// ContentBody bin = file.getContentBody();
 
-								CloseableHttpResponse postResponse = httpclient.execute(httppost, getLocalContext());
-								try {
-									int postStatus = postResponse.getStatusLine().getStatusCode();
-									String postRes = null;
-									HttpEntity postEntity = postResponse.getEntity();
-									if (postEntity != null) {
-										postRes = EntityUtils.toString(postEntity);
+									MultipartEntityBuilder meb = MultipartEntityBuilder.create();
+									// meb.addPart("file", bin);
+									URL upUrl = new URL(uploadUrl);
+									String uploadPath = upUrl.getPath();
+									println("up path: " + uploadPath);
+									//Two formats for upload URLs so far - we need to parse the bucket name from either
+									// http://129.114.52.102:9006/dataverse-dev-tacc-s3/10.5072...
+									//https://dataverse-dev-s3.s3.amazonaws.com/10.5072...
+									//If we string the dataset DOI and the / before it
+									//The bucket is either the portion after the last remaining '/' or the portion of that before the first '.'
+									String rawBucket = uploadUrl.substring(0, uploadUrl.indexOf(datasetPID.substring(4)) - 1);
+									println("rawBucket: " + rawBucket);
+									//String bucket = upUrl.getHost().substring(0, upUrl.getHost().indexOf('.'));
+									String bucket = rawBucket.substring(rawBucket.lastIndexOf("/") + 1);
+									if (bucket.contains(".")) {
+										bucket = bucket.substring(0, bucket.indexOf("."));
 									}
-									if (postStatus == 200) {
-										JSONObject checksum = (new JSONObject(postRes)).getJSONObject("data")
-												.getJSONArray("files").getJSONObject(0).getJSONObject("dataFile")
-												.getJSONObject("checksum");
-										dataId = checksum.getString("type") + ":" + checksum.getString("value");
-										retry = 0;
-										int total = 0;
-										// For new servers, wait up to maxWaitTime for a dataset lock to expire.
-										while (isLocked() && (total < maxWaitTime)) {
-											TimeUnit.SECONDS.sleep(1);
-											total = total + 1;
-										}
-									} else if (status == 400 && oldServer) {
-										// If the call to the lock API fails in isLocked(), oldServer will be set to
-										// true and
-										// all we can do for a lock is to keep retrying.
-										// Unfortunately, the error messages are configurable, so there's no guaranteed
-										// way to detect
-										// locks versus other conditions (e.g. file exists), so we can test for unique
-										// words in the default messages
-										if ((postRes != null) && postRes.contains("lock")) {
-											retry--;
+									println("bucket: " + bucket);
+									String storageId = "s3://" + bucket + ":" + uploadPath.substring(uploadPath.lastIndexOf("/") + 1);
+
+									println("storageId: " + storageId);
+
+									String jsonData = "{\"storageIdentifier\":\"" + storageId + "\",\"fileName\":\""
+											+ file.getName() + "\",\"mimeType\":\"" + file.getMimeType() + "\",\"md5Hash\":\"" +localchecksum + "\"";
+									if (recurse) {
+										// Dataverse takes paths without an initial / and ending without a /
+										// with the path not including the file name
+										if (path.substring(1).contains("/")) {
+											String parentPath = path.substring(1, path.lastIndexOf("/"));
+											jsonData = jsonData
+													+ (!parentPath.isEmpty() ? ",\"directoryLabel\":\"" + parentPath + "\"}"
+															: "}");
 										} else {
+											jsonData = jsonData + "}";
+										}
+										meb.addTextBody("jsonData", jsonData);
+
+									}
+
+									HttpEntity reqEntity = meb.build();
+									httppost.setEntity(reqEntity);
+
+									CloseableHttpResponse postResponse = httpclient.execute(httppost, getLocalContext());
+									try {
+										int postStatus = postResponse.getStatusLine().getStatusCode();
+										String postRes = null;
+										HttpEntity postEntity = postResponse.getEntity();
+										if (postEntity != null) {
+											postRes = EntityUtils.toString(postEntity);
+										}
+										if (postStatus == 200) {
+											JSONObject checksum = (new JSONObject(postRes)).getJSONObject("data")
+													.getJSONArray("files").getJSONObject(0).getJSONObject("dataFile")
+													.getJSONObject("checksum");
+											dataId = checksum.getString("type") + ":" + checksum.getString("value");
+											retry = 0;
+											int total = 0;
+											// For new servers, wait up to maxWaitTime for a dataset lock to expire.
+											while (isLocked() && (total < maxWaitTime)) {
+												TimeUnit.SECONDS.sleep(1);
+												total = total + 1;
+											}
+										} else if (status == 400 && oldServer) {
+											// If the call to the lock API fails in isLocked(), oldServer will be set to
+											// true and
+											// all we can do for a lock is to keep retrying.
+											// Unfortunately, the error messages are configurable, so there's no guaranteed
+											// way to detect
+											// locks versus other conditions (e.g. file exists), so we can test for unique
+											// words in the default messages
+											if ((postRes != null) && postRes.contains("lock")) {
+												retry--;
+											} else {
+												println("Error response when processing " + file.getAbsolutePath() + " : "
+														+ response.getStatusLine().getReasonPhrase());
+												// A real error: e.g. This file already exists in the dataset.
+												if (postRes != null) {
+													println(postRes);
+												}
+												// Skip
+												retry = 0;
+											}
+										} else {
+											// An error and unlikely that we can recover, so report and move on.
 											println("Error response when processing " + file.getAbsolutePath() + " : "
 													+ response.getStatusLine().getReasonPhrase());
-											// A real error: e.g. This file already exists in the dataset.
 											if (postRes != null) {
 												println(postRes);
 											}
-											// Skip
 											retry = 0;
 										}
-									} else {
-										// An error and unlikely that we can recover, so report and move on.
-										println("Error response when processing " + file.getAbsolutePath() + " : "
-												+ response.getStatusLine().getReasonPhrase());
-										if (postRes != null) {
-											println(postRes);
-										}
+									} catch (InterruptedException e) {
+										e.printStackTrace();
 										retry = 0;
+									} finally {
+										EntityUtils.consumeQuietly(response.getEntity());
 									}
-								} catch (InterruptedException e) {
-									e.printStackTrace();
-									retry = 0;
-								} finally {
-									EntityUtils.consumeQuietly(response.getEntity());
 								}
-							}
 
-						} catch (IOException e) {
-							e.printStackTrace();
-							println("Error processing " + file.getAbsolutePath() + " : " + e.getMessage());
+							} catch (IOException e) {
+								e.printStackTrace(System.out);
+								println("Error processing 1" + file.getAbsolutePath() + " : " + e.getMessage());
+								retry = 0;
+							}
+						}
+					} else {
+						if (status > 500) {
+							retry--;
+						} else {
 							retry = 0;
 						}
-	                    }
 					}
-					
+
 				} catch (IOException e) {
-					e.printStackTrace();
-					println("Error getting direct url " + file.getAbsolutePath() + " : " + e.getMessage());
+					e.printStackTrace(System.out);
+					println("Error processing 2 " + file.getAbsolutePath() + " : " + e.getMessage());
 					retry = 0;
 				} catch (NoSuchAlgorithmException e1) {
 					// TODO Auto-generated catch block
@@ -513,7 +544,7 @@ println("Url: " + uploadUrl);
 				}
 
 			} catch (IOException e) {
-				println("Error processing " + file.getAbsolutePath() + " : " + e.getMessage());
+				println("Error processing 3" + file.getAbsolutePath() + " : " + e.getMessage());
 				retry = 0;
 			}
 		}
