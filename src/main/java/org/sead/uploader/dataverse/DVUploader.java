@@ -19,10 +19,16 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.PipedInputStream;
 import java.security.DigestInputStream;
+import java.security.KeyManagementException;
+import java.security.KeyStoreException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+import javax.net.ssl.SSLContext;
 
 import org.apache.commons.codec.binary.Hex;
 import org.apache.http.HttpEntity;
@@ -34,15 +40,20 @@ import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.client.methods.HttpPut;
 import org.apache.http.client.protocol.HttpClientContext;
+import org.apache.http.conn.ssl.NoopHostnameVerifier;
+import org.apache.http.conn.ssl.SSLConnectionSocketFactory;
+import org.apache.http.conn.ssl.TrustAllStrategy;
 import org.apache.http.entity.InputStreamEntity;
 import org.apache.http.entity.mime.MultipartEntityBuilder;
 import org.apache.http.entity.mime.content.ContentBody;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
+import org.apache.http.ssl.SSLContextBuilder;
 import org.apache.http.util.EntityUtils;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.sead.uploader.AbstractUploader;
+import org.sead.uploader.clowder.SEADUploader;
 import org.sead.uploader.util.UploaderException;
 import org.sead.uploader.util.Resource;
 
@@ -135,6 +146,34 @@ public class DVUploader extends AbstractUploader {
 	public HttpClientContext authenticate() {
 		return new HttpClientContext();
 	}
+	
+    public CloseableHttpClient getSharedHttpClient() {
+        if (httpclient == null) {
+            // use the TrustSelfSignedStrategy to allow Self Signed Certificates
+            SSLContext sslContext;
+            try {
+                sslContext = SSLContextBuilder
+                        .create()
+                        .loadTrustMaterial(new TrustAllStrategy())
+                        .build();
+
+                // create an SSL Socket Factory to use the SSLContext with the trust self signed certificate strategy
+                // and allow all hosts verifier.
+                SSLConnectionSocketFactory connectionFactory = new SSLConnectionSocketFactory(sslContext, NoopHostnameVerifier.INSTANCE);
+
+                // finally create the HttpClient using HttpClient factory methods and assign the ssl socket factory
+                httpclient = HttpClients
+                        .custom()
+                        .setSSLSocketFactory(connectionFactory)
+                        .setUserAgent("curl/7.61.1")
+    					.setDefaultRequestConfig(RequestConfig.custom().setCookieSpec(CookieSpecs.STANDARD).build())
+    					.build();
+            } catch (NoSuchAlgorithmException | KeyStoreException | KeyManagementException ex) {
+                Logger.getLogger(SEADUploader.class.getName()).log(Level.SEVERE, null, ex);
+            }
+        }
+        return httpclient;
+    }
 
 	HashMap<String, JSONObject> existingItems = null;
 	boolean datasetMDRetrieved = false;
@@ -164,9 +203,7 @@ public class DVUploader extends AbstractUploader {
 		// One-time: get metadata for dataset to see if it exists and what files it
 		// contains
 		if (!datasetMDRetrieved) {
-			httpclient = HttpClients.custom()
-					.setDefaultRequestConfig(RequestConfig.custom().setCookieSpec(CookieSpecs.STANDARD).build())
-					.build();
+			httpclient = getSharedHttpClient();
 
 			try {
 				// This api call will find the dataset and, if found, retrieve the list of files
@@ -328,9 +365,7 @@ public class DVUploader extends AbstractUploader {
 	@Override
 	protected String uploadDatafile(Resource file, String path) {
 		if (httpclient == null) {
-			httpclient = HttpClients.custom()
-					.setDefaultRequestConfig(RequestConfig.custom().setCookieSpec(CookieSpecs.STANDARD).build())
-					.build();
+			httpclient = getSharedHttpClient();
 		}
 		String dataId = null;
 		int retry = 10;
@@ -340,8 +375,8 @@ public class DVUploader extends AbstractUploader {
 			try {
 
 				// Now post data
-				String urlString = server + "/api/datasets/uploadsid";
-				urlString = urlString + "?key=" + apiKey;
+				String urlString = server + "/api/datasets/:persistentId/uploadsid";
+				urlString = urlString + "?persistentId=" + datasetPID + "&key=" + apiKey;
 				HttpGet httpget = new HttpGet(urlString);
 				CloseableHttpResponse response = httpclient.execute(httpget, getLocalContext());
 				try {
@@ -349,20 +384,26 @@ public class DVUploader extends AbstractUploader {
 					String uploadUrl = null;
 					HttpEntity resEntity = response.getEntity();
 					if (resEntity != null) {
-						uploadUrl = EntityUtils.toString(resEntity);
+						 String putRes= EntityUtils.toString(resEntity);
+						uploadUrl = (new JSONObject(putRes)).getJSONObject("data").getString("message");
 					}
 					if (status == 200) {
-
+println("Url: " + uploadUrl);
 						HttpPut httpput = new HttpPut(uploadUrl);
+						
 	                    MessageDigest messageDigest = MessageDigest.getInstance("MD5");
 	                    try (InputStream inStream = file.getInputStream(); DigestInputStream digestInputStream = new DigestInputStream(inStream, messageDigest)) {
 	                    	
-	                    	
 						
 						httpput.setEntity(new InputStreamEntity(digestInputStream));
+						println("File length: " + file.length());
+
+
+						println("Ready");
 						CloseableHttpResponse putResponse = httpclient.execute(httpput, getLocalContext());
 						try {
 							int putStatus = putResponse.getStatusLine().getStatusCode();
+							println("Status " + putStatus);
 							String putRes = null;
 							HttpEntity putEntity = putResponse.getEntity();
 							if (putEntity != null) {
@@ -455,6 +496,7 @@ public class DVUploader extends AbstractUploader {
 							}
 
 						} catch (IOException e) {
+							e.printStackTrace();
 							println("Error processing " + file.getAbsolutePath() + " : " + e.getMessage());
 							retry = 0;
 						}
@@ -462,7 +504,8 @@ public class DVUploader extends AbstractUploader {
 					}
 					
 				} catch (IOException e) {
-					println("Error processing " + file.getAbsolutePath() + " : " + e.getMessage());
+					e.printStackTrace();
+					println("Error getting direct url " + file.getAbsolutePath() + " : " + e.getMessage());
 					retry = 0;
 				} catch (NoSuchAlgorithmException e1) {
 					// TODO Auto-generated catch block
@@ -479,9 +522,7 @@ public class DVUploader extends AbstractUploader {
 
 	private boolean isLocked() {
 		if (httpclient == null) {
-			httpclient = HttpClients.custom()
-					.setDefaultRequestConfig(RequestConfig.custom().setCookieSpec(CookieSpecs.STANDARD).build())
-					.build();
+			httpclient = getSharedHttpClient();
 		}
 		try {
 			String urlString = server + "/api/datasets/:persistentId/locks";
