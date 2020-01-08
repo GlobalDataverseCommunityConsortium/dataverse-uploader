@@ -395,8 +395,12 @@ public class DVUploader extends AbstractUploader {
                             jsonResponse = EntityUtils.toString(resEntity);
                         }
                         if (status == 200) {
-                            uploadUrl = (new JSONObject(jsonResponse)).getJSONObject("data").getString("message");
+                            JSONObject data = (new JSONObject(jsonResponse)).getJSONObject("data");
+                            uploadUrl = data.getString("url");
+                            String storageIdentifier = data.getString("storageIdentifier");
                             println("Put to: " + uploadUrl);
+                            println("storageId: " + storageIdentifier);
+
                             HttpPut httpput = new HttpPut(uploadUrl);
                             MessageDigest messageDigest = MessageDigest.getInstance("MD5");
                             println(file.getAbsolutePath() + " " + file.length());
@@ -428,28 +432,8 @@ public class DVUploader extends AbstractUploader {
                                         // ContentBody bin = file.getContentBody();
                                         MultipartEntityBuilder meb = MultipartEntityBuilder.create();
                                         // meb.addPart("file", bin);
-                                        URL upUrl = new URL(uploadUrl);
-                                        String uploadPath = upUrl.getPath();
-                                        println("up path: " + uploadPath);
-                                        //Two formats for upload URLs so far - we need to parse the bucket name from either
-                                        // http://129.114.52.102:9006/dataverse-dev-tacc-s3/10.5072...
-                                        //https://dataverse-dev-s3.s3.amazonaws.com/10.5072...
-                                        //If we string the dataset DOI and the / before it
-                                        //The bucket is either the portion after the last remaining '/' or the portion of that before the first '.'
-                                        String rawBucket = uploadUrl.substring(0, uploadUrl.indexOf(datasetPID.substring(4)) - 1);
-                                        println("rawBucket: " + rawBucket);
-                                        //String bucket = upUrl.getHost().substring(0, upUrl.getHost().indexOf('.'));
-                                        String bucket = rawBucket.substring(rawBucket.lastIndexOf("/") + 1);
-                                        if (bucket.contains(".")) {
-                                            bucket = bucket.substring(0, bucket.indexOf("."));
-                                        }
-                                        println("bucket: " + bucket);
-                                        String storageId = "s3://" + bucket + ":" + uploadPath.substring(uploadPath.lastIndexOf("/") + 1);
-
-                                        println("storageId: " + storageId);
-
-                                        String jsonData = "{\"storageIdentifier\":\"" + storageId + "\",\"fileName\":\""
-                                                + file.getName() + "\",\"mimeType\":\"" + file.getMimeType() + "\",\"md5Hash\":\"" + localchecksum + "\"";
+                                        String jsonData = "{\"storageIdentifier\":\"" + storageIdentifier + "\",\"fileName\":\""
+                                                + file.getName() + "\",\"mimeType\":\"" + file.getMimeType() + "\",\"md5Hash\":\"" + localchecksum + "\",\"fileSize\":\"" + file.length() + "\"";
                                         if (recurse) {
                                             // Dataverse takes paths without an initial / and ending without a /
                                             // with the path not including the file name
