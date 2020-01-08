@@ -114,9 +114,9 @@ public class SEADUploader extends AbstractUploader {
         if (server == null || requests.isEmpty()) {
             println("\n***Required arguments not found.***");
             usage();
-        } else if(checkDataset) {
-          ((SEADUploader)uploader).checkTheDataset();
-          
+        } else if (checkDataset) {
+            ((SEADUploader) uploader).checkTheDataset();
+
         } else {
             println("\n***Starting to Process Upload Requests:***\n");
             uploader.processRequests();
@@ -150,7 +150,7 @@ public class SEADUploader extends AbstractUploader {
             println("CheckId only works with knownId - exiting");
             System.exit(0);
         }
-        int goodFiles=0;
+        int goodFiles = 0;
         String dPath = null;
         CloseableHttpResponse response = null;
         String serviceUrl = "";
@@ -216,7 +216,6 @@ public class SEADUploader extends AbstractUploader {
                 System.exit(0);
             }
 
-            
             existingFiles = new HashMap<String, String>();
             existingFolders = new HashMap<String, String>();
             try {
@@ -322,13 +321,13 @@ public class SEADUploader extends AbstractUploader {
                                             if (existingFiles.containsKey(path)) {
                                                 println(id + " duplicates " + existingFiles.get(path));
                                             } else {
-                                                String folderPath = path.substring(1,path.lastIndexOf("/"));
-                                                if(folderPath.indexOf("/")>=0) {
-                                                folderPath = folderPath.substring(folderPath.indexOf("/"));
+                                                String folderPath = path.substring(1, path.lastIndexOf("/"));
+                                                if (folderPath.indexOf("/") >= 0) {
+                                                    folderPath = folderPath.substring(folderPath.indexOf("/"));
                                                 } else {
-                                                    folderPath="";
+                                                    folderPath = "";
                                                 }
-                                                if (folderPath.length()>0 && !existingFolders.containsKey(folderPath)) {
+                                                if (folderPath.length() > 0 && !existingFolders.containsKey(folderPath)) {
                                                     println("Folder for " + path + " not found");
                                                 } else {
 
@@ -391,8 +390,8 @@ public class SEADUploader extends AbstractUploader {
             knownId = arg.substring(arg.indexOf(argSeparator) + 1);
             println("Updating Dataset with id: " + knownId);
             return true;
-        } else if(arg.startsWith("-checkDataset")) {
-            checkDataset=true;
+        } else if (arg.startsWith("-checkDataset")) {
+            checkDataset = true;
             println("Only checking Dataset");
             return true;
         }

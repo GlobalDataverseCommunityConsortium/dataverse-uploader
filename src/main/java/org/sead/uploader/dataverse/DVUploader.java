@@ -17,7 +17,6 @@ package org.sead.uploader.dataverse;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.net.URL;
 import java.security.DigestInputStream;
 import java.security.KeyManagementException;
 import java.security.KeyStoreException;
@@ -70,6 +69,7 @@ public class DVUploader extends AbstractUploader {
     private static int maxWaitTime = 60;
     private static boolean recurse = false;
     private static boolean directUpload = false;
+    private static boolean trustCerts = false;
 
     public static void main(String args[]) throws Exception {
 
@@ -113,6 +113,7 @@ public class DVUploader extends AbstractUploader {
         println("      -skip=<n>    - a number of files to skip before starting processing (saves time when you know the first n files have been uploaded before)");
         println("      -recurse     - recurse into subdirectories");
         println("      -maxlockwait - the maximum time to wait (in seconds) for a Dataset lock (i.e. while the last file is ingested) to expire (default 60 seconds)");
+        println("      -trustall    - trust all server certificates (i.e. for use when testing with self-signed certificates)");
         println("");
 
     }
@@ -136,6 +137,10 @@ public class DVUploader extends AbstractUploader {
             directUpload = true;
             println("Will use direct upload of files (if configured on this server)");
             return true;
+        } else if (arg.equals("-trustall")) {
+            trustCerts = true;
+            println("Will trust all certificates");
+            return true;
         } else if (arg.startsWith("-maxlockwait")) {
             try {
                 maxWaitTime = Integer.parseInt(arg.substring(arg.indexOf(argSeparator) + 1));
@@ -157,23 +162,30 @@ public class DVUploader extends AbstractUploader {
         if (httpclient == null) {
             // use the TrustSelfSignedStrategy to allow Self Signed Certificates
             SSLContext sslContext;
+            SSLConnectionSocketFactory connectionFactory;
             try {
-                sslContext = SSLContextBuilder
-                        .create()
-                        .loadTrustMaterial(new TrustAllStrategy())
-                        .build();
+                if (trustCerts) {
+                    sslContext = SSLContextBuilder
+                            .create()
+                            .loadTrustMaterial(new TrustAllStrategy())
+                            .build();
+                    // create an SSL Socket Factory to use the SSLContext with the trust self signed certificate strategy
+                    // and allow all hosts verifier.
+                    connectionFactory = new SSLConnectionSocketFactory(sslContext, NoopHostnameVerifier.INSTANCE);
+                    // finally create the HttpClient using HttpClient factory methods and assign the ssl socket factory
+                    httpclient = HttpClients
+                            .custom()
+                            .setSSLSocketFactory(connectionFactory)
+                            .setDefaultRequestConfig(RequestConfig.custom().setCookieSpec(CookieSpecs.STANDARD).build())
+                            .build();
+                } else {
+                    httpclient = HttpClients
+                            .custom()
+                            .setDefaultRequestConfig(RequestConfig.custom().setCookieSpec(CookieSpecs.STANDARD).build())
+                            .build();
 
-                // create an SSL Socket Factory to use the SSLContext with the trust self signed certificate strategy
-                // and allow all hosts verifier.
-                SSLConnectionSocketFactory connectionFactory = new SSLConnectionSocketFactory(sslContext, NoopHostnameVerifier.INSTANCE);
+                }
 
-                // finally create the HttpClient using HttpClient factory methods and assign the ssl socket factory
-                httpclient = HttpClients
-                        .custom()
-                        .setSSLSocketFactory(connectionFactory)
-                        .setUserAgent("curl/7.61.1")
-                        .setDefaultRequestConfig(RequestConfig.custom().setCookieSpec(CookieSpecs.STANDARD).build())
-                        .build();
             } catch (NoSuchAlgorithmException | KeyStoreException | KeyManagementException ex) {
                 Logger.getLogger(DVUploader.class.getName()).log(Level.SEVERE, null, ex);
             }
@@ -397,32 +409,23 @@ public class DVUploader extends AbstractUploader {
                             JSONObject data = (new JSONObject(jsonResponse)).getJSONObject("data");
                             uploadUrl = data.getString("url");
                             String storageIdentifier = data.getString("storageIdentifier");
-                            println("Put to: " + uploadUrl);
-                            println("storageId: " + storageIdentifier);
 
                             HttpPut httpput = new HttpPut(uploadUrl);
                             MessageDigest messageDigest = MessageDigest.getInstance("MD5");
-                            println(file.getAbsolutePath() + " " + file.length());
 
                             try (InputStream inStream = file.getInputStream(); DigestInputStream digestInputStream = new DigestInputStream(inStream, messageDigest)) {
 
-                                println("Set S3 entity");
                                 httpput.setEntity(new BufferedHttpEntity(new InputStreamEntity(digestInputStream, file.length())));
-                                println("Calling S3");
                                 CloseableHttpResponse putResponse = httpclient.execute(httpput);
                                 try {
                                     int putStatus = putResponse.getStatusLine().getStatusCode();
-                                    println("Status " + putStatus);
                                     String putRes = null;
                                     HttpEntity putEntity = putResponse.getEntity();
                                     if (putEntity != null) {
                                         putRes = EntityUtils.toString(putEntity);
-                                        println(putRes);
                                     }
                                     if (putStatus == 200) {
-                                        println("S3 Success");
                                         String localchecksum = Hex.encodeHexString(digestInputStream.getMessageDigest().digest());
-                                        println("Checksum: " + localchecksum);
                                         // Now post data
                                         urlString = server + "/api/datasets/:persistentId/add";
                                         urlString = urlString + "?persistentId=" + datasetPID + "&key=" + apiKey;
@@ -510,7 +513,7 @@ public class DVUploader extends AbstractUploader {
 
                                 } catch (IOException e) {
                                     e.printStackTrace(System.out);
-                                    println("Error processing 1" + file.getAbsolutePath() + " : " + e.getMessage());
+                                    println("Error processing POST to Dataverse" + file.getAbsolutePath() + " : " + e.getMessage());
                                     retry = 0;
                                 }
                             }
@@ -524,7 +527,7 @@ public class DVUploader extends AbstractUploader {
 
                     } catch (IOException e) {
                         e.printStackTrace(System.out);
-                        println("Error processing 2 " + file.getAbsolutePath() + " : " + e.getMessage());
+                        println("Error processing file upload " + file.getAbsolutePath() + " : " + e.getMessage());
                         retry = 0;
                     } catch (NoSuchAlgorithmException e1) {
                         // TODO Auto-generated catch block
@@ -532,7 +535,7 @@ public class DVUploader extends AbstractUploader {
                     }
 
                 } catch (IOException e) {
-                    println("Error processing 3" + file.getAbsolutePath() + " : " + e.getMessage());
+                    println("Error processing request for storage id" + file.getAbsolutePath() + " : " + e.getMessage());
                     retry = 0;
                 }
             }
@@ -623,6 +626,7 @@ public class DVUploader extends AbstractUploader {
             }
         }
         return dataId;
+
     }
 
     private boolean isLocked() {

@@ -209,7 +209,7 @@ public class SEADAuthenticator {
         if (authenticated) {
             return localContext;
         }
-        
+
         return null;
     }
 

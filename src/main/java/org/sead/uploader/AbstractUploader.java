@@ -152,18 +152,18 @@ public abstract class AbstractUploader {
     public abstract HttpClientContext authenticate();
 
     public void processRequests() {
-        if(importRO && (skip>0 || max < Long.MAX_VALUE)) {
+        if (importRO && (skip > 0 || max < Long.MAX_VALUE)) {
             println("Cannot set max or skip limits when importing an existing RO");
             System.exit(0);
         }
         //Avoid max+skip > Long.MAX_VALUE
-        max=((Long.MAX_VALUE-max) -skip) <0 ? (max-skip): max;
+        max = ((Long.MAX_VALUE - max) - skip) < 0 ? (max - skip) : max;
         localContext = authenticate();
         if (localContext == null) {
             println("Authentication failure - exiting.");
             System.exit(0);
         }
-        if(skip>0) {
+        if (skip > 0) {
             println("WILL SKIP " + skip + " FILES");
         }
         try {
@@ -202,7 +202,7 @@ public abstract class AbstractUploader {
                                     println("CURRENT TOTAL: " + globalFileCount + " files :" + totalBytes + " bytes");
                                 } else if ((tagId == null) && (!listonly)) {
                                     println("Not uploaded due to error during processing: " + file.getPath());
-                                } 
+                                }
                             } else {
                                 println("SKIPPING(F):  " + file.getPath());
                                 skip--;
@@ -361,11 +361,11 @@ public abstract class AbstractUploader {
                                 totalBytes += file.length();
                                 println("               UPLOADED as: " + newUri);
                                 println("CURRENT TOTAL: " + globalFileCount + " files :" + totalBytes + " bytes");
-                            } 
+                            }
                         } else {
                             println("SKIPPING(F):  " + file.getPath());
                             skip = skip - 1;
-                            if(skip==0l) {
+                            if (skip == 0l) {
                                 println("\nSKIP COMPLETE");
                             }
                         }
@@ -443,7 +443,7 @@ public abstract class AbstractUploader {
         if (!listonly) {
             if (dataId == null) { // doesn't exist or we don't care (!merge)
                 try {
-                dataId = uploadDatafile(file, path);
+                    dataId = uploadDatafile(file, path);
                 } catch (UploaderException ue) {
                     println(ue.getMessage());
                 }

@@ -41,7 +41,6 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 import org.sead.uploader.util.ResourceFactory;
 
-
 /**
  *
  */
@@ -104,7 +103,7 @@ public class SEADTester {
                 .createDefault();
 
         postSingleMetadata(
-                new JSONObject("{\"a\":\"rá\"}"),
+                new JSONObject("{\"a\":\"rï¿½\"}"),
                 //new JSONObject("{\"a\":\"r\"}"),
                 new JSONArray("[\"" + CLOWDER_DEFAULT_VOCAB + "\",{\"a\":\"http://purl.org/dc/terms/audience\"}]"),
                 new JSONObject("{\"c\":\"d\"}"), "http://localhost:9000/api/metadata.jsonld", httpclient);
@@ -128,7 +127,7 @@ public class SEADTester {
 
             //StringEntity se2 = new StringEntity(meta.toString());
             StringEntity se2 = new StringEntity(
-                    "{\"@context\":[\"https://clowder.ncsa.illinois.edu/contexts/metadata.jsonld\",{\"Funding Institution\":\"http://sead-data.net/terms/FundingInstitution\"}],\"dataset_id\":\"583314110d15772a7e37cd90\",\"content\":{\"Funding Institution\":\"rá\"}}", "UTF-8");
+                    "{\"@context\":[\"https://clowder.ncsa.illinois.edu/contexts/metadata.jsonld\",{\"Funding Institution\":\"http://sead-data.net/terms/FundingInstitution\"}],\"dataset_id\":\"583314110d15772a7e37cd90\",\"content\":{\"Funding Institution\":\"rï¿½\"}}", "UTF-8");
             println(meta.toString(2));
 
             //se2.setContentEncoding("UTF-8");
