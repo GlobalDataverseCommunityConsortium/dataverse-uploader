@@ -4,7 +4,7 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>DVUploader</groupId>
     <artifactId>DVUploader</artifactId>
-    <version>1.0.6-tdl-dev</version>
+    <version>1.0.7</version>
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>

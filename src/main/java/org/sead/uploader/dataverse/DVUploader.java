@@ -69,6 +69,7 @@ public class DVUploader extends AbstractUploader {
 	private static boolean oldServer = false;
 	private static int maxWaitTime = 60;
 	private static boolean recurse = false;
+    private static boolean directUpload = false;
 
 	public static void main(String args[]) throws Exception {
 
@@ -105,11 +106,12 @@ public class DVUploader extends AbstractUploader {
 		println("      <did> = the Dataset DOI you are uploading to, e.g. doi:10.5072/A1B2C3");
 		println("      <files or directories> = a space separated list of files to upload or directory name(s) where the files to upload are");
 		println("\n  Optional Arguments:");
+        println("      -directupload    - Use Dataverse's direct upload capability to send files directly to their final location (only works if this is enabled on the server)");
 		println("      -listonly    - Scan the Dataset and local files and list what would be uploaded (does not upload with this flag)");
 		println("      -limit=<n>   - Specify a maximum number of files to upload per invocation.");
 		println("      -verify      - Check both the file name and checksum in comparing with current Dataset entries.");
 		println("      -skip=<n>    - a number of files to skip before starting processing (saves time when you know the first n files have been uploaded before)");
-
+        println("      -recurse     - recurse into subdirectories");
 		println("      -maxlockwait - the maximum time to wait (in seconds) for a Dataset lock (i.e. while the last file is ingested) to expire (default 60 seconds)");
 		println("");
 
@@ -129,6 +131,10 @@ public class DVUploader extends AbstractUploader {
 		} else if (arg.equals("-recurse")) {
 			recurse = true;
 			println("Will recurse into subdirectories");
+			return true;
+		} else if (arg.equals("-directupload")) {
+			directUpload = true;
+			println("Will use direct upload of files (if configured on this server)");
 			return true;
 		} else if (arg.startsWith("-maxlockwait")) {
 			try {
@@ -369,7 +375,7 @@ public class DVUploader extends AbstractUploader {
 		}
 		String dataId = null;
 		int retry = 10;
-
+        if (directUpload) {
 		while (retry > 0) {
 
 			try {
@@ -532,6 +538,92 @@ public class DVUploader extends AbstractUploader {
 				retry = 0;
 			}
 		}
+        } else {
+            while (retry > 0) {
+
+                try {
+                    // Now post data
+                    String urlString = server + "/api/datasets/:persistentId/add";
+                    urlString = urlString + "?persistentId=" + datasetPID + "&key=" + apiKey;
+                    HttpPost httppost = new HttpPost(urlString);
+
+                    ContentBody bin = file.getContentBody();
+
+                    MultipartEntityBuilder meb = MultipartEntityBuilder.create();
+                    meb.addPart("file", bin);
+                    if (recurse) {
+                        // Dataverse takes paths without an initial / and ending without a /
+                        // with the path not including the file name
+                        String parentPath = path.substring(1, path.lastIndexOf("/"));
+                        if (!parentPath.isEmpty()) {
+                            meb.addTextBody("jsonData", "{\"directoryLabel\":\"" + parentPath + "\"}");
+                        }
+                    }
+
+                    HttpEntity reqEntity = meb.build();
+                    httppost.setEntity(reqEntity);
+
+                    CloseableHttpResponse response = httpclient.execute(httppost, getLocalContext());
+                    try {
+                        int status = response.getStatusLine().getStatusCode();
+                        String res = null;
+                        HttpEntity resEntity = response.getEntity();
+                        if (resEntity != null) {
+                            res = EntityUtils.toString(resEntity);
+                        }
+                        if (status == 200) {
+                            JSONObject checksum = (new JSONObject(res)).getJSONObject("data").getJSONArray("files")
+                                    .getJSONObject(0).getJSONObject("dataFile").getJSONObject("checksum");
+                            dataId = checksum.getString("type") + ":" + checksum.getString("value");
+                            retry = 0;
+                            int total = 0;
+                            // For new servers, wait up to maxWaitTime for a dataset lock to expire.
+                            while (isLocked() && (total < maxWaitTime)) {
+                                TimeUnit.SECONDS.sleep(1);
+                                total = total + 1;
+                            }
+                        } else if (status == 400 && oldServer) {
+                            // If the call to the lock API fails in isLocked(), oldServer will be set to
+                            // true and
+                            // all we can do for a lock is to keep retrying.
+                            // Unfortunately, the error messages are configurable, so there's no guaranteed
+                            // way to detect
+                            // locks versus other conditions (e.g. file exists), so we can test for unique
+                            // words in the default messages
+                            if ((res != null) && res.contains("lock")) {
+                                retry--;
+                            } else {
+                                println("Error response when processing " + file.getAbsolutePath() + " : "
+                                        + response.getStatusLine().getReasonPhrase());
+                                // A real error: e.g. This file already exists in the dataset.
+                                if (res != null) {
+                                    println(res);
+                                }
+                                // Skip
+                                retry = 0;
+                            }
+                        } else {
+                            // An error and unlikely that we can recover, so report and move on.
+                            println("Error response when processing " + file.getAbsolutePath() + " : "
+                                    + response.getStatusLine().getReasonPhrase());
+                            if (res != null) {
+                                println(res);
+                            }
+                            retry = 0;
+                        }
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
+                        retry = 0;
+                    } finally {
+                        EntityUtils.consumeQuietly(response.getEntity());
+                    }
+
+                } catch (IOException e) {
+                    println("Error processing " + file.getAbsolutePath() + " : " + e.getMessage());
+                    retry = 0;
+                }
+            }
+        }
 		return dataId;
 	}
 
