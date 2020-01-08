@@ -112,7 +112,7 @@ public class DVUploader extends AbstractUploader {
 		println("      -limit=<n>   - Specify a maximum number of files to upload per invocation.");
 		println("      -verify      - Check both the file name and checksum in comparing with current Dataset entries.");
 		println("      -skip=<n>    - a number of files to skip before starting processing (saves time when you know the first n files have been uploaded before)");
-
+                println("      -recurse     - recurse into subdirectories");
 		println("      -maxlockwait - the maximum time to wait (in seconds) for a Dataset lock (i.e. while the last file is ingested) to expire (default 60 seconds)");
 		println("");
 
