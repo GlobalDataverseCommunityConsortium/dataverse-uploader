@@ -135,7 +135,7 @@ public abstract class AbstractUploader {
                 println("Skip file count: " + skip);
             } else if (arg.startsWith("-ex")) {
                 excluded.add(arg.substring(arg.indexOf(argSeparator) + 1));
-                println("Exluding pattern: " + arg.substring(arg.indexOf(argSeparator) + 1));
+                println("Excluding pattern: " + arg.substring(arg.indexOf(argSeparator) + 1));
             } else if (arg.startsWith("-server")) {
                 server = arg.substring(arg.indexOf(argSeparator) + 1);
                 println("Using server: " + server);

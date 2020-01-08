@@ -21,7 +21,9 @@ import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.security.DigestInputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -34,7 +36,6 @@ import org.apache.http.entity.ContentType;
 import org.apache.http.entity.mime.content.ContentBody;
 import org.apache.http.entity.mime.content.FileBody;
 import org.json.JSONObject;
-
 
 public class FileResource implements Resource {
 
@@ -62,6 +63,21 @@ public class FileResource implements Resource {
 	@Override
 	public String getPath() {
 		return f.getPath();
+	}
+
+	@Override
+	public String getMimeType() {
+		String type=null;
+		try {
+			type = Files.probeContentType(FileSystems.getDefault().getPath(f.getPath()));
+
+		} catch (Exception e) {
+			// Could log
+		}
+		if (type == null) {
+			type = "application/octet-stream";
+		}
+		return type;
 	}
 
 	@Override
@@ -93,37 +109,51 @@ public class FileResource implements Resource {
 		ContentType cType = ContentType.DEFAULT_BINARY;
 		try {
 			String mType = Files.probeContentType(f.toPath());
-			
-			if(mType!= null) {
+
+			if (mType != null) {
 				cType = ContentType.create(mType);
 			}
 		} catch (Exception e) {
 			System.out.println(e.getMessage());
 		}
-		return new FileBody(f, cType , f.getName());
+		return new FileBody(f, cType, f.getName());
+	}
+
+	@Override
+	public InputStream getInputStream() {
+		try {
+                    InputStream is = new FileInputStream(f);
+			return is;
+		} catch (FileNotFoundException e) {
+			e.printStackTrace();
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		return null;
 	}
 
 	@Override
 	public String getHash(String algorithm) {
-        MessageDigest digester = null;
-        InputStream is=null;
+		MessageDigest digester = null;
+		InputStream is = null;
 		try {
 			is = new FileInputStream(f);
-            digester = MessageDigest.getInstance(algorithm);
-            is = new DigestInputStream(is, digester);
-            byte[] b = new byte[8192];
-            while(is.read(b)!=-1);
-            byte[] digest = digester.digest();
-            return Hex.encodeHexString(digest);
+			digester = MessageDigest.getInstance(algorithm);
+			is = new DigestInputStream(is, digester);
+			byte[] b = new byte[8192];
+			while (is.read(b) != -1)
+				;
+			byte[] digest = digester.digest();
+			return Hex.encodeHexString(digest);
 		} catch (FileNotFoundException e) {
 			e.printStackTrace();
-		}         catch (NoSuchAlgorithmException e1) {
-            e1.printStackTrace();
-        } catch (IOException e) {
+		} catch (NoSuchAlgorithmException e1) {
+			e1.printStackTrace();
+		} catch (IOException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
-		}
-		finally {
+		} finally {
 			IOUtils.closeQuietly(is);
 		}
 		return null;
@@ -131,7 +161,7 @@ public class FileResource implements Resource {
 
 	@Override
 	public JSONObject getMetadata() {
-		//No extra metadata by default for files
+		// No extra metadata by default for files
 		return new JSONObject();
 	}
 
