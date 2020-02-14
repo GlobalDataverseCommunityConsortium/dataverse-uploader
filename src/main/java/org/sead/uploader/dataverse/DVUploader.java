@@ -443,9 +443,10 @@ public class DVUploader extends AbstractUploader {
                                                 jsonData = jsonData
                                                         + (!parentPath.isEmpty() ? ",\"directoryLabel\":\"" + parentPath + "\"}"
                                                         : "}");
-                                            } else {
-                                                jsonData = jsonData + "}";
+                                            
                                             }
+                                        } else {
+                                            jsonData = jsonData + "}";
                                         }
                                         meb.addTextBody("jsonData", jsonData);
 
