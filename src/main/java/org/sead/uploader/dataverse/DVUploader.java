@@ -42,7 +42,6 @@ import org.apache.http.client.protocol.HttpClientContext;
 import org.apache.http.conn.ssl.NoopHostnameVerifier;
 import org.apache.http.conn.ssl.SSLConnectionSocketFactory;
 import org.apache.http.conn.ssl.TrustAllStrategy;
-import org.apache.http.entity.BufferedHttpEntity;
 import org.apache.http.entity.InputStreamEntity;
 import org.apache.http.entity.mime.MultipartEntityBuilder;
 import org.apache.http.entity.mime.content.ContentBody;
@@ -176,12 +175,12 @@ public class DVUploader extends AbstractUploader {
                     httpclient = HttpClients
                             .custom()
                             .setSSLSocketFactory(connectionFactory)
-                            .setDefaultRequestConfig(RequestConfig.custom().setCookieSpec(CookieSpecs.STANDARD).build())
+                            .setDefaultRequestConfig(RequestConfig.custom().setCookieSpec(CookieSpecs.STANDARD).setExpectContinueEnabled(true).build())
                             .build();
                 } else {
                     httpclient = HttpClients
                             .custom()
-                            .setDefaultRequestConfig(RequestConfig.custom().setCookieSpec(CookieSpecs.STANDARD).build())
+                            .setDefaultRequestConfig(RequestConfig.custom().setCookieSpec(CookieSpecs.STANDARD).setExpectContinueEnabled(true).build())
                             .build();
 
                 }
@@ -415,7 +414,7 @@ public class DVUploader extends AbstractUploader {
 
                             try (InputStream inStream = file.getInputStream(); DigestInputStream digestInputStream = new DigestInputStream(inStream, messageDigest)) {
 
-                                httpput.setEntity(new BufferedHttpEntity(new InputStreamEntity(digestInputStream, file.length())));
+                                httpput.setEntity(new InputStreamEntity(digestInputStream, file.length()));
                                 CloseableHttpResponse putResponse = httpclient.execute(httpput);
                                 try {
                                     int putStatus = putResponse.getStatusLine().getStatusCode();
@@ -447,9 +446,8 @@ public class DVUploader extends AbstractUploader {
                                             } else {
                                                 jsonData = jsonData + "}";
                                             }
-                                            meb.addTextBody("jsonData", jsonData);
-
                                         }
+                                        meb.addTextBody("jsonData", jsonData);
 
                                         HttpEntity reqEntity = meb.build();
                                         httppost.setEntity(reqEntity);
