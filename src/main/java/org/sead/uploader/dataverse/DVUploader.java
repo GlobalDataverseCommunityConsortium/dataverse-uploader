@@ -31,6 +31,7 @@ import javax.net.ssl.SSLContext;
 
 import org.apache.commons.codec.binary.Hex;
 import org.apache.http.HttpEntity;
+import org.apache.http.HttpHeaders;
 import org.apache.http.client.ClientProtocolException;
 import org.apache.http.client.config.CookieSpecs;
 import org.apache.http.client.config.RequestConfig;
@@ -38,6 +39,8 @@ import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.client.methods.HttpPut;
+import org.apache.http.client.methods.HttpUriRequest;
+import org.apache.http.client.methods.RequestBuilder;
 import org.apache.http.client.protocol.HttpClientContext;
 import org.apache.http.conn.ssl.NoopHostnameVerifier;
 import org.apache.http.conn.ssl.SSLConnectionSocketFactory;
@@ -410,10 +413,18 @@ public class DVUploader extends AbstractUploader {
                             String storageIdentifier = data.getString("storageIdentifier");
 
                             HttpPut httpput = new HttpPut(uploadUrl);
+                            
+                            
+                            httpput.addHeader("x-amz-tagging", "dv-state=temp");
                             MessageDigest messageDigest = MessageDigest.getInstance("MD5");
 
                             try (InputStream inStream = file.getInputStream(); DigestInputStream digestInputStream = new DigestInputStream(inStream, messageDigest)) {
-
+                                // This is hte new form for requests - keeping the example but won't update until we can change all
+                                //HttpUriRequest httpput = RequestBuilder.put()
+                                //    .setUri(uploadUrl)
+                                //    .setHeader("x-amz-tagging", "dv-state=temp")
+                                //    .setEntity(new InputStreamEntity(digestInputStream, file.length()))
+                                //    .build();
                                 httpput.setEntity(new InputStreamEntity(digestInputStream, file.length()));
                                 CloseableHttpResponse putResponse = httpclient.execute(httpput);
                                 try {
@@ -508,6 +519,9 @@ public class DVUploader extends AbstractUploader {
                                         } finally {
                                             EntityUtils.consumeQuietly(response.getEntity());
                                         }
+                                    } else {
+                                        println("Upload failed with status: " + putStatus + " (skipping)");
+                                        retry=0;
                                     }
 
                                 } catch (IOException e) {
