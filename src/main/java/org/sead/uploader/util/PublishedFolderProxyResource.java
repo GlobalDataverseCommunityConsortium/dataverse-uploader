@@ -40,7 +40,7 @@ import org.json.JSONObject;
  * @author Jim
  *
  */
-public class PublishedFolderProxyResource extends PublishedResource implements Resource {
+public class PublishedFolderProxyResource extends PublishedResource {
 
     private PublishedResource resource;
     private String message;

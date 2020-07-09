@@ -22,6 +22,7 @@ import java.io.IOException;
 import java.io.PrintWriter;
 import java.net.MalformedURLException;
 import java.net.URL;
+import java.text.DecimalFormat;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -102,6 +103,13 @@ public abstract class AbstractUploader {
                 uploader.pw.flush();
             }
         }
+        return;
+    }
+    static DecimalFormat decimalFormat = new DecimalFormat("#.00");
+
+    public static void printStatus(float s) {
+        System.out.print("\rProgress: " + decimalFormat.format(s*100) + "%");
+        System.out.flush();
         return;
     }
 

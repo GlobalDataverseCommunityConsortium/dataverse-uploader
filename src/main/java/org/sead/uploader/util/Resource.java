@@ -15,33 +15,55 @@
  ***************************************************************************** */
 package org.sead.uploader.util;
 
+import java.io.FileNotFoundException;
+import java.io.IOException;
 import java.io.InputStream;
+import org.apache.commons.io.input.BoundedInputStream;
 
 import org.apache.http.entity.mime.content.ContentBody;
 import org.json.JSONObject;
 
-public interface Resource extends Iterable<Resource> {
+public abstract class Resource implements Iterable<Resource> {
 
-    String getName();
+    public abstract String getName();
 
-    boolean isDirectory();
+    public abstract boolean isDirectory();
 
-    String getPath();
+    public abstract String getPath();
 
-    long length();
+    public abstract long length();
 
-    String getAbsolutePath();
+    public abstract String getAbsolutePath();
 
-    ContentBody getContentBody();
+    public abstract ContentBody getContentBody();
 
-    InputStream getInputStream();
+    public abstract InputStream getInputStream();
 
-    Iterable<Resource> listResources();
+    public abstract Iterable<Resource> listResources();
 
-    String getHash(String algorithm);
+    public abstract String getHash(String algorithm);
 
-    JSONObject getMetadata();
+    public abstract JSONObject getMetadata();
 
-    String getMimeType();
+    public abstract String getMimeType();
+
+    /**
+     *
+     * @param l
+     * @param partSize
+     * @return
+     */
+    public InputStream getInputStream(long l, long partSize) {
+        try {
+            InputStream is = getInputStream();
+            is.skip(l);
+            return new BoundedInputStream(is, partSize);
+        } catch (FileNotFoundException e) {
+            e.printStackTrace();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return null;
+    }
 
 }

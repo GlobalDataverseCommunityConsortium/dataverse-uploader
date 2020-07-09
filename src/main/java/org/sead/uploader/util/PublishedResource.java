@@ -33,7 +33,7 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-public class PublishedResource implements Resource {
+public class PublishedResource extends Resource {
 
     protected JSONObject resource;
     private String path;

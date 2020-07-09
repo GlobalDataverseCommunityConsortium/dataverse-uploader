@@ -31,12 +31,13 @@ import java.util.Iterator;
 
 import org.apache.commons.codec.binary.Hex;
 import org.apache.commons.io.IOUtils;
+import org.apache.commons.io.input.BoundedInputStream;
 import org.apache.http.entity.ContentType;
 import org.apache.http.entity.mime.content.ContentBody;
 import org.apache.http.entity.mime.content.FileBody;
 import org.json.JSONObject;
 
-public class FileResource implements Resource {
+public class FileResource extends Resource {
 
     private File f;
 
@@ -163,5 +164,4 @@ public class FileResource implements Resource {
         // No extra metadata by default for files
         return new JSONObject();
     }
-
 }
