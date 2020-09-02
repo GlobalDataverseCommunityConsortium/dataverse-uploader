@@ -126,7 +126,7 @@ public abstract class AbstractUploader {
             } else if (arg.equals("-verify")) {
                 verify = true;
                 println("Verify Mode: Will verify hash values for file comparisons");
-            } else if (arg.equals("-ro")) {
+            } else if (arg.startsWith("-ro")) {
                 importRO = true;
                 try {
                     oremapURL = new URL(arg.substring(arg.indexOf(argSeparator) + 1));
@@ -523,6 +523,10 @@ public abstract class AbstractUploader {
 
     public void setSpaceType(String spaceType) {
         this.spaceType = spaceType;
+    }
+    
+    public boolean getImportRO() {
+        return importRO;
     }
 
 }

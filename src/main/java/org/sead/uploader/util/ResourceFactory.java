@@ -15,6 +15,7 @@
  ***************************************************************************** */
 package org.sead.uploader.util;
 
+import com.apicatalog.jsonld.JsonLd;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -35,6 +36,22 @@ import org.apache.http.util.EntityUtils;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.sead.uploader.clowder.SEADUploader;
+
+import javax.json.Json;
+import javax.json.JsonException;
+import javax.json.JsonStructure;
+import javax.json.JsonValue;
+import javax.json.stream.JsonParser;
+
+import com.apicatalog.jsonld.api.JsonLdError;
+import com.apicatalog.jsonld.api.JsonLdErrorCode;
+import com.apicatalog.jsonld.document.JsonDocument;
+import com.apicatalog.jsonld.http.media.MediaType;
+import com.apicatalog.jsonld.json.JsonUtils;
+import java.io.StringReader;
+import java.io.StringWriter;
+import java.io.Writer;
+import javax.json.JsonArray;
 
 public class ResourceFactory {
 
@@ -77,6 +94,23 @@ public class ResourceFactory {
 
             mapString = EntityUtils.toString(he, "UTF-8");
 
+            
+            JsonStructure struct;
+            struct = Json.createParser(new StringReader(mapString)).getObject();
+            JsonDocument doc = JsonDocument.of(struct);
+            JsonArray array = null;
+            try {
+            array = JsonLd.expand(doc).get();
+            String jsonString;
+            try(Writer writer = new StringWriter()) {
+    Json.createWriter(writer).write(array);
+    jsonString = writer.toString();
+    System.out.println(jsonString);
+}
+            
+            } catch (JsonLdError e) {
+                System.out.println(e.getMessage());
+            }
             oremap = new JSONObject(mapString);
             // private ArrayList<String> indexResources(String aggId, JSONArray
             // aggregates) {

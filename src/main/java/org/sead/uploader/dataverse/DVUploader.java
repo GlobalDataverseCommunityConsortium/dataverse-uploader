@@ -1,5 +1,5 @@
 /** *****************************************************************************
- * Copyright 2018 Texas Digital Library, jim.myers@computer.org
+ * Copyright 2020 GDCC, 2018 Texas Digital Library, jim.myers@computer.org
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -110,9 +110,10 @@ public class DVUploader extends AbstractUploader {
         println("DVUploader - a command-line application to upload files to any Dataverse Dataset");
         println("Developed for the Dataverse Community");
         println("\n----------------------------------------------------------------------------------\n");
+        println(String.join(" ", args));
         println("\n***Parsing arguments:***\n");
         uploader.parseArgs(args);
-        if (server == null || datasetPID == null || apiKey == null || requests.isEmpty()) {
+        if (server == null || datasetPID == null || apiKey == null || (requests.isEmpty() && !uploader.getImportRO())) {
             println("\n***Required arguments not found.***");
             usage();
         } else {
