@@ -26,7 +26,6 @@ import java.util.HashMap;
 import java.util.HashSet;
 
 import org.apache.http.HttpEntity;
-import org.apache.http.ParseException;
 import org.apache.http.client.ClientProtocolException;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpGet;
@@ -38,20 +37,18 @@ import org.json.JSONObject;
 import org.sead.uploader.clowder.SEADUploader;
 
 import javax.json.Json;
-import javax.json.JsonException;
 import javax.json.JsonStructure;
-import javax.json.JsonValue;
-import javax.json.stream.JsonParser;
 
 import com.apicatalog.jsonld.api.JsonLdError;
-import com.apicatalog.jsonld.api.JsonLdErrorCode;
 import com.apicatalog.jsonld.document.JsonDocument;
-import com.apicatalog.jsonld.http.media.MediaType;
-import com.apicatalog.jsonld.json.JsonUtils;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import java.io.StringReader;
-import java.io.StringWriter;
-import java.io.Writer;
+import java.math.BigDecimal;
+import static java.nio.charset.StandardCharsets.UTF_8;
+import java.util.stream.Collectors;
 import javax.json.JsonArray;
+import javax.json.JsonObject;
 
 public class ResourceFactory {
 
@@ -79,6 +76,29 @@ public class ResourceFactory {
         }
     };
 
+    JsonObject baseContext = Json.createObjectBuilder()
+            .add("describes", "http://www.openarchives.org/ore/terms/describes")
+            .add("aggregates", "http://www.openarchives.org/ore/terms/aggregates")
+            .add("Has Part", "http://schema.org/hasPart")
+            .add("Version","http://schema.org/version")
+            .add("Title","http://purl.org/dc/terms/title")
+            .add("Label","http://schema.org/name")
+            .add("Mimetype","http://schema.org/fileFormat")
+            .add("similarTo","http://schema.org/sameAs")
+            .add("Size","https://dataverse.org/schema/core#filesize")
+            .build();
+    
+    JSONObject orgJsonbaseContext = new JSONObject()
+            .put("describes", "http://www.openarchives.org/ore/terms/describes")
+            .put("aggregates", "http://www.openarchives.org/ore/terms/aggregates")
+            .put("Has Part", "http://schema.org/hasPart")
+            .put("Version","http://schema.org/version")
+            .put("Title","http://purl.org/dc/terms/title")
+            .put("Label","http://schema.org/name")
+            .put("Mimetype","http://schema.org/fileFormat")
+            .put("similarTo","http://schema.org/sameAs")
+            .put("Size","https://dataverse.org/schema/core#filesize");
+            
     JSONObject oremap;
     ArrayList<String> index;
     JSONArray aggregates;
@@ -86,51 +106,64 @@ public class ResourceFactory {
 
     private CloseableHttpClient client;
 
+    public ResourceFactory() {
+        
+    }
+    
     public ResourceFactory(URL oremapURL) {
+        String mapString = "";
         client = HttpClients.custom().build();
         try {
-            HttpEntity he = getURI(oremapURL.toURI());
-            String mapString;
+            if (oremapURL.getProtocol().equals("file")) {
+                mapString = new BufferedReader(
+                        new InputStreamReader(oremapURL.openStream(), UTF_8))
+                        .lines()
+                        .collect(Collectors.joining("\n"));
+            } else {
+                
 
-            mapString = EntityUtils.toString(he, "UTF-8");
-
-            
-            JsonStructure struct;
-            struct = Json.createParser(new StringReader(mapString)).getObject();
-            JsonDocument doc = JsonDocument.of(struct);
-            JsonArray array = null;
-            try {
-            array = JsonLd.expand(doc).get();
-            String jsonString;
-            try(Writer writer = new StringWriter()) {
-    Json.createWriter(writer).write(array);
-    jsonString = writer.toString();
-    System.out.println(jsonString);
-}
-            
-            } catch (JsonLdError e) {
-                System.out.println(e.getMessage());
+                HttpEntity he = getURI(oremapURL.toURI());
+                mapString = EntityUtils.toString(he, "UTF-8");
             }
-            oremap = new JSONObject(mapString);
-            // private ArrayList<String> indexResources(String aggId, JSONArray
-            // aggregates) {
-            JSONObject aggregation = oremap.getJSONObject("describes");
-            String aggId = aggregation.getString("Identifier");
-            rootPath = "/" + aggId + "/data/" + aggregation.getString("Title");
-            aggregates = aggregation.getJSONArray("aggregates");
-            ArrayList<String> l = new ArrayList<String>(aggregates.length() + 1);
-            l.add(aggId);
-            for (int i = 0; i < aggregates.length(); i++) {
-                l.add(aggregates.getJSONObject(i).getString("Identifier"));
-            }
-            index = l;
-        } catch (ParseException | IOException e) {
-            // TODO Auto-generated catch block
-            e.printStackTrace();
-        } catch (URISyntaxException e) {
+        } catch (URISyntaxException | IOException e) {
             // TODO Auto-generated catch block
             e.printStackTrace();
         }
+        createOreMapFromString(mapString);
+    }
+    
+    void createOreMapFromString(String mapString) {
+        JsonStructure struct;
+        struct = Json.createReader(new StringReader(mapString)).readObject();
+        JsonDocument doc = JsonDocument.of(struct);
+        JsonArray array = null;
+        try {
+            array = JsonLd.expand(doc).get();
+            JsonStructure context;
+            mapString = JsonUtils.stringify(JsonLd.compact(JsonDocument.of(array), JsonDocument.of(baseContext)).get());
+        } catch (JsonLdError e) {
+            System.out.println(e.getMessage());
+        }
+ 
+System.out.println(mapString);
+
+        oremap = new JSONObject(mapString);
+        // private ArrayList<String> indexResources(String aggId, JSONArray
+        // aggregates) {
+        JSONObject aggregation = oremap.getJSONObject("describes");
+        String aggId = aggregation.getString("@id");
+        if(aggregation.has("Version")) {
+        aggId = (aggId + "v" + aggregation.getString("Version")).replace(":?.?", "-");
+        }
+        
+        rootPath = "/" + aggId + "/data/" + aggregation.getString("Title");
+        aggregates = aggregation.getJSONArray("aggregates");
+        ArrayList<String> l = new ArrayList<String>(aggregates.length() + 1);
+        l.add(aggId);
+        for (int i = 0; i < aggregates.length(); i++) {
+            l.add(aggregates.getJSONObject(i).getString("@id"));
+        }
+        index = l;
         PublishedResource.setResourceFactory(this);
 
     }

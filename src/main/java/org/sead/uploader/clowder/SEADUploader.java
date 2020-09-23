@@ -18,6 +18,7 @@ package org.sead.uploader.clowder;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UnsupportedEncodingException;
+import java.net.URL;
 import java.net.URLEncoder;
 import java.security.KeyManagementException;
 import java.security.KeyStoreException;
@@ -56,12 +57,13 @@ import org.apache.http.protocol.HTTP;
 import org.apache.http.util.EntityUtils;
 import org.json.JSONArray;
 import org.json.JSONObject;
-import org.sead.uploader.util.PublishedFolderProxyResource;
-import org.sead.uploader.util.PublishedResource;
+import org.sead.uploader.util.SEAD2PublishedFolderProxyResource;
+import org.sead.uploader.util.SEAD2PublishedResource;
 import org.sead.uploader.util.Resource;
 import org.sead.uploader.util.ResourceFactory;
 
 import org.sead.uploader.AbstractUploader;
+import static org.sead.uploader.AbstractUploader.println;
 import org.sead.uploader.util.UploaderException;
 
 /**
@@ -511,8 +513,8 @@ public class SEADUploader extends AbstractUploader {
             JSONObject jo = new JSONObject();
             String title = dir.getName().trim();
             // For publishedResource, we want to use the Title
-            if (dir instanceof PublishedResource) {
-                title = ((PublishedResource) dir).getAndRemoveTitle().trim();
+            if (dir instanceof SEAD2PublishedResource) {
+                title = ((SEAD2PublishedResource) dir).getAndRemoveTitle().trim();
             }
             jo.put("name", title);
             jo.put("parentId", parentId);
@@ -596,8 +598,8 @@ public class SEADUploader extends AbstractUploader {
             // Assume we only write a metadata file if collection is newly
             // created and we're importing
             if (importRO && collectionId != null) {
-                Resource mdFile = new PublishedFolderProxyResource(
-                        (PublishedResource) dir, collectionId);
+                Resource mdFile = new SEAD2PublishedFolderProxyResource(
+                        (SEAD2PublishedResource) dir, collectionId);
                 String mdId = null;
                 try {
                     mdId = uploadDatafile(mdFile, path + "/"
@@ -634,12 +636,12 @@ public class SEADUploader extends AbstractUploader {
             JSONObject jo = new JSONObject();
             String title = dir.getName().trim();
             // For publishedResource, we want to use the Title
-            if (dir instanceof PublishedResource) {
-                title = ((PublishedResource) dir).getAndRemoveTitle().trim();
+            if (dir instanceof SEAD2PublishedResource) {
+                title = ((SEAD2PublishedResource) dir).getAndRemoveTitle().trim();
             }
             jo.put("name", title);
             if (importRO) {
-                String abs = ((PublishedResource) dir)
+                String abs = ((SEAD2PublishedResource) dir)
                         .getAndRemoveAbstract(d2a);
                 if (abs != null) {
                     jo.put("description", abs);
@@ -682,8 +684,8 @@ public class SEADUploader extends AbstractUploader {
                 content.put("Upload Path", path);
                 List<String> comments = new ArrayList<String>();
                 // Should be true for all PublishedResources, never for files...
-                if (dir instanceof PublishedResource) {
-                    ((PublishedResource) dir).getAndRemoveCreator(creators);
+                if (dir instanceof SEAD2PublishedResource) {
+                    ((SEAD2PublishedResource) dir).getAndRemoveCreator(creators);
                 }
 
                 String creatorPostUri = server + "/api/datasets/" + datasetId
@@ -1005,10 +1007,10 @@ public class SEADUploader extends AbstractUploader {
 
                 String abs = null;
                 String title = null;
-                if (file instanceof PublishedResource) {
-                    abs = ((PublishedResource) file).getAndRemoveAbstract(d2a);
+                if (file instanceof SEAD2PublishedResource) {
+                    abs = ((SEAD2PublishedResource) file).getAndRemoveAbstract(d2a);
 
-                    title = ((PublishedResource) file).getAndRemoveTitle();
+                    title = ((SEAD2PublishedResource) file).getAndRemoveTitle();
                     if ((title != null) && (title.equals(file.getName()))) {
                         title = null;
                     }
@@ -1313,6 +1315,40 @@ public class SEADUploader extends AbstractUploader {
 
     protected String findGeneralizationOf(String id) {
         return id;
+    }
+
+    
+    @SuppressWarnings("unchecked")
+    public void importRO(URL oremapURL) {
+        super.importRO(oremapURL);
+
+        JSONObject rels = new JSONObject(SEAD2PublishedResource.getAllRelationships());
+        /*
+         * println("Rels to translate"); println(rels.toString(2));
+         * println(roCollIdToNewId.toString()); println(roDataIdToNewId.toString());
+         */
+        if (!listonly) {
+            for (String relSubject : (Set<String>) rels.keySet()) {
+                JSONObject relationships = rels.getJSONObject(relSubject);
+                println(relationships.toString(2));
+
+                String newSubject = null;
+                String type = "collections";
+                newSubject = roCollIdToNewId.get(findGeneralizationOf(relSubject));
+
+                if (newSubject == null) {
+                    newSubject = roDataIdToNewId.get(findGeneralizationOf(relSubject));
+                    type = "datasets";
+                } else if (roFolderProxy.containsKey(newSubject)) {
+                    newSubject = roFolderProxy.get(newSubject);
+                    type = "datasets";
+                }
+                if ((newSubject != null) && (relationships.length() != 0)) {
+                    println("Subject: " + newSubject + " for " + relSubject);
+                    addDatasetMetadata(newSubject, type, relationships);
+                }
+            }
+        }
     }
 
     HashMap<String, String> existingDatasets = new HashMap<String, String>();

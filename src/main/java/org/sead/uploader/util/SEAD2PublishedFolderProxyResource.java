@@ -40,12 +40,13 @@ import org.json.JSONObject;
  * @author Jim
  *
  */
-public class PublishedFolderProxyResource extends PublishedResource {
+public class SEAD2PublishedFolderProxyResource extends SEAD2PublishedResource {
 
-    private PublishedResource resource;
+    private SEAD2PublishedResource resource;
     private String message;
+    private String absPath;
 
-    public PublishedFolderProxyResource(PublishedResource pr, String folderId) {
+    public SEAD2PublishedFolderProxyResource(SEAD2PublishedResource pr, String folderId) {
         super(pr.resource);
         resource = pr;
 

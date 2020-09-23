@@ -21,6 +21,7 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.net.MalformedURLException;
+import java.net.URISyntaxException;
 import java.net.URL;
 import java.text.DecimalFormat;
 import java.util.ArrayList;
@@ -28,14 +29,13 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 import org.apache.http.client.ClientProtocolException;
 import org.apache.http.client.protocol.HttpClientContext;
 import org.json.JSONObject;
 import org.sead.uploader.util.FileResource;
 import org.sead.uploader.util.PublishedResource;
+import org.sead.uploader.util.SEAD2PublishedResource;
 import org.sead.uploader.util.Resource;
 import org.sead.uploader.util.ResourceFactory;
 
@@ -56,6 +56,7 @@ public abstract class AbstractUploader {
 
     protected static AbstractUploader uploader = null;
     protected static final String argSeparator = "=";
+    protected static URL bagLocation = null;
 
     private long max = Long.MAX_VALUE;
     private Long skip = 0l;
@@ -176,8 +177,12 @@ public abstract class AbstractUploader {
         }
         try {
             if (importRO) {
-                // Should be a URL
-                importRO(oremapURL);
+                if(bagLocation != null) {
+                    importBag(bagLocation);
+                } else {
+                    // Should be a URL
+                    importRO(oremapURL);
+                }
             } else {
 
                 for (String request : requests) {
@@ -232,11 +237,15 @@ public abstract class AbstractUploader {
     }
 
     @SuppressWarnings("unchecked")
-    private void importRO(URL oremapURL) {
+    public void importRO(URL oremapURL) {
         rf = new ResourceFactory(oremapURL);
+        doImportRO();
+    }
+        public void doImportRO() {
         PublishedResource dataset = rf.getParentResource();
         String tagId = null;
         // remove the name and final / char from the absolute path
+        println(dataset.getAbsolutePath());
         String rootPath = dataset.getAbsolutePath().substring(0,
                 dataset.getAbsolutePath().length() - dataset.getName().length() - 1);
 
@@ -244,41 +253,13 @@ public abstract class AbstractUploader {
 
             tagId = itemExists(rootPath + "/", dataset);
         }
-
+System.out.println("tagId: " + tagId);
         String newUri = uploadCollection(dataset, rootPath, tagId, tagId);
 
         if (newUri != null) {
             println("              " + dataset.getPath() + " CREATED as: " + newUri);
         } else if ((tagId == null) && !listonly) {
             println("Error processing: " + dataset.getPath());
-        }
-
-        JSONObject rels = new JSONObject(PublishedResource.getAllRelationships());
-        /*
-         * println("Rels to translate"); println(rels.toString(2));
-         * println(roCollIdToNewId.toString()); println(roDataIdToNewId.toString());
-         */
-        if (!listonly) {
-            for (String relSubject : (Set<String>) rels.keySet()) {
-                JSONObject relationships = rels.getJSONObject(relSubject);
-                println(relationships.toString(2));
-
-                String newSubject = null;
-                String type = "collections";
-                newSubject = roCollIdToNewId.get(findGeneralizationOf(relSubject));
-
-                if (newSubject == null) {
-                    newSubject = roDataIdToNewId.get(findGeneralizationOf(relSubject));
-                    type = "datasets";
-                } else if (roFolderProxy.containsKey(newSubject)) {
-                    newSubject = roFolderProxy.get(newSubject);
-                    type = "datasets";
-                }
-                if ((newSubject != null) && (relationships.length() != 0)) {
-                    println("Subject: " + newSubject + " for " + relSubject);
-                    addDatasetMetadata(newSubject, type, relationships);
-                }
-            }
         }
     }
 
@@ -527,6 +508,10 @@ public abstract class AbstractUploader {
     
     public boolean getImportRO() {
         return importRO;
+    }
+
+    public void importBag(URL bagLocation) throws URISyntaxException {
+        throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
     }
 
 }
