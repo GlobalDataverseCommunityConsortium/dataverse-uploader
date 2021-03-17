@@ -38,16 +38,10 @@ import org.json.JSONObject;
 import org.sead.uploader.clowder.SEADUploader;
 
 import javax.json.Json;
-import javax.json.JsonException;
 import javax.json.JsonStructure;
-import javax.json.JsonValue;
-import javax.json.stream.JsonParser;
 
 import com.apicatalog.jsonld.api.JsonLdError;
-import com.apicatalog.jsonld.api.JsonLdErrorCode;
 import com.apicatalog.jsonld.document.JsonDocument;
-import com.apicatalog.jsonld.http.media.MediaType;
-import com.apicatalog.jsonld.json.JsonUtils;
 import java.io.StringReader;
 import java.io.StringWriter;
 import java.io.Writer;
