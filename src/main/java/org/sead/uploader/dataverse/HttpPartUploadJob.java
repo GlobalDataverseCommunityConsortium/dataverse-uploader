@@ -66,6 +66,9 @@ public class HttpPartUploadJob implements Runnable {
         int retries = 3;
         //println("Starting upload of part: " + partNo);
         while (retries > 0) {
+            if(retries <3) {
+                println("Retrying upload of part: " + partNo);
+            }
             try (InputStream is = file.getInputStream((partNo - 1) * partSize, size)) {
 
                 HttpPut httpput = new HttpPut(signedUrl);
@@ -100,7 +103,7 @@ public class HttpPartUploadJob implements Runnable {
             } catch (IOException e) {
                 e.printStackTrace(System.out);
                 println("Error uploading part: " + partNo + " : " + e.getMessage());
-                retries = 0;
+                retries--;
             }
         }
     }
