@@ -364,16 +364,8 @@ System.out.println("tagId: " + tagId);
 
             }
             if (!listonly) { // We're potentially making changes
-                if (collectionId == null) { // a collection for path not on
-                    // server or we
-                    // don't care - we have to write
-                    // the
-                    // collection
-                    postProcessCollection();
-                } else {
-                    postProcessChildren();
-
-                }
+                postProcessCollection();
+                postProcessChildren();
                 if ((collectionId != null) && importRO) {
                     String id = findGeneralizationOf(((PublishedResource) dir).getIdentifier());
 

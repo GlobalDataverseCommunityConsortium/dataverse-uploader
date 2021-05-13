@@ -15,10 +15,14 @@
  ***************************************************************************** */
 package org.sead.uploader.dataverse;
 
+import com.apicatalog.jsonld.document.JsonDocument;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.StringReader;
+import java.io.StringWriter;
+import java.io.UnsupportedEncodingException;
+import java.math.BigDecimal;
 import java.net.MalformedURLException;
 import java.net.URISyntaxException;
 import java.net.URL;
@@ -41,6 +45,10 @@ import java.util.logging.Logger;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 import javax.json.Json;
+import javax.json.JsonObject;
+import javax.json.JsonWriter;
+import javax.json.JsonWriterFactory;
+import javax.json.stream.JsonGenerator;
 
 import javax.net.ssl.SSLContext;
 
@@ -488,10 +496,58 @@ public class DVUploader extends AbstractUploader {
 
     @Override
     protected void postProcessCollection() {
-        // TBD
-        // println("DVUploader does not yet support creation of datasets or uploading
-        // sub-directories and their contents");
+        //importRO is the only time we are using the semantic / migrate API and have to call after uploading files (to trigger dataset release)
+        if (importRO) {
+            httpclient = getSharedHttpClient();
+            // Now post data
+            String urlString = server + "/api/datasets/:persistentId/actions/:releasemigrated";
+            urlString = urlString + "?persistentId=" + datasetPID + "&key=" + apiKey;
+            HttpPost httppost = new HttpPost(urlString);
+            httppost.setHeader("Content-type", "application/json-ld");
+            PublishedResource ds = rf.getParentResource();
 
+            StringEntity body;
+            try {
+                JsonObject md = Json.createObjectBuilder().add("http://schema.org/datePublished", ds.getMetadata().getString("http://schema.org/datePublished")).build();
+                
+                			StringWriter sw = new StringWriter();
+			Map<String, Object> properties = new HashMap<>(1);
+			properties.put(JsonGenerator.PRETTY_PRINTING, true);
+			JsonWriterFactory writerFactory = Json.createWriterFactory(properties);
+			JsonWriter jsonWriter = writerFactory.createWriter(sw);
+			jsonWriter.write(md);
+			jsonWriter.close();
+			String mdString = sw.toString();
+                        
+                body = new StringEntity(mdString, "utf-8");
+println(mdString);
+                httppost.setEntity(body);
+
+                CloseableHttpResponse response = httpclient.execute(httppost, getLocalContext());
+
+                int status = response.getStatusLine().getStatusCode();
+                String res = null;
+                HttpEntity resEntity = response.getEntity();
+                if (resEntity != null) {
+                    res = EntityUtils.toString(resEntity);
+                }
+                println("Status: " + status);
+                if (status != 200) {
+                    println("Error response trying to release migrated file " + ds.getIdentifier() + " : "
+                            + response.getStatusLine().getReasonPhrase());
+                    if(res!=null) {
+                    println(res);
+                    }
+                }
+            } catch (UnsupportedEncodingException ex) {
+                //Not expected
+                println("Unsupported encoding: " + ex.getMessage());
+            } catch (IOException ex) {
+                println("Error trying to release migrated file " + ds.getIdentifier() + " : "
+                        + ex.getMessage());
+            }
+
+        }
     }
 
     @Override

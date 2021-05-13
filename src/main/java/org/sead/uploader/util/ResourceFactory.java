@@ -41,8 +41,6 @@ import javax.json.JsonStructure;
 
 import com.apicatalog.jsonld.api.JsonLdError;
 import com.apicatalog.jsonld.document.JsonDocument;
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
 import java.io.StringReader;
 import java.math.BigDecimal;
 import static java.nio.charset.StandardCharsets.UTF_8;
