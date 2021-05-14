@@ -44,6 +44,7 @@ public abstract class Resource implements Iterable<Resource> {
     public abstract String getHash(String algorithm);
 
     public abstract JSONObject getMetadata();
+    public abstract void setMetadata(JSONObject metadata);
 
     public abstract String getMimeType();
 
@@ -65,5 +66,7 @@ public abstract class Resource implements Iterable<Resource> {
         }
         return null;
     }
+
+
 
 }

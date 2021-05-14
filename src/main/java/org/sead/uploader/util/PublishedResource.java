@@ -540,4 +540,10 @@ public class PublishedResource extends Resource {
         }
         return null;
     }
+    
+    @Override
+    public void setMetadata(JSONObject metadata) {
+        throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+    }
+
 }

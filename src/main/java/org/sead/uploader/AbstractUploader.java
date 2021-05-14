@@ -192,6 +192,19 @@ public abstract class AbstractUploader {
                         if (file.isDirectory()) {
 
                             String newUri = uploadCollection(file, "", null, tagId);
+                            if (!listonly) { // We're potentially making changes
+                                if (newUri == null) { // a collection for path not on
+                                    // server or we
+                                    // don't care - we have to write
+                                    // the
+                                    // collection
+                                    postProcessCollection();
+                                } else {
+                                    postProcessChildren(file);
+                                }
+                            } else {
+                                newUri = null; // listonly - report no changes
+                            }
 
                             if (newUri != null) {
                                 println("FINALIZING(D): " + file.getPath() + " CREATED as: " + newUri);
@@ -390,7 +403,7 @@ public abstract class AbstractUploader {
                     // collection
                     postProcessCollection();
                 } else {
-                    postProcessChildren();
+                    postProcessChildren(dir);
 
                 }
                 if ((collectionId != null) && importRO) {
@@ -416,7 +429,7 @@ public abstract class AbstractUploader {
         return collectionId;
     }
 
-    protected abstract void postProcessChildren();
+    protected abstract void postProcessChildren(Resource dir);
 
     protected abstract void postProcessCollection();
 

@@ -22,7 +22,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
-import java.nio.file.Path;
 import java.security.DigestInputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -31,7 +30,6 @@ import java.util.Iterator;
 
 import org.apache.commons.codec.binary.Hex;
 import org.apache.commons.io.IOUtils;
-import org.apache.commons.io.input.BoundedInputStream;
 import org.apache.http.entity.ContentType;
 import org.apache.http.entity.mime.content.ContentBody;
 import org.apache.http.entity.mime.content.FileBody;
@@ -40,6 +38,8 @@ import org.json.JSONObject;
 public class FileResource extends Resource {
 
     private File f;
+    
+    private JSONObject metadata=null;
 
     public FileResource(String fileName) {
         f = new File(fileName);
@@ -85,11 +85,15 @@ public class FileResource extends Resource {
         return listResources().iterator();
     }
 
+    private ArrayList<Resource> resources = null;
+
     @Override
     public Iterable<Resource> listResources() {
-        ArrayList<Resource> resources = new ArrayList<Resource>();
-        for (File file : f.listFiles()) {
-            resources.add(new FileResource(file));
+        if (resources == null) {
+            resources = new ArrayList<Resource>();
+            for (File file : f.listFiles()) {
+                resources.add(new FileResource(file));
+            }
         }
         return resources;
     }
@@ -162,6 +166,13 @@ public class FileResource extends Resource {
     @Override
     public JSONObject getMetadata() {
         // No extra metadata by default for files
-        return new JSONObject();
+        return metadata == null? new JSONObject(): metadata;
     }
+    
+    @Override
+    public void setMetadata(JSONObject jo) {
+        System.out.println("Storing " + jo.toString(2) );
+        metadata=jo;
+    }
+
 }
