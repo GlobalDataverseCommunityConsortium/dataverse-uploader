@@ -1,5 +1,5 @@
 /** *****************************************************************************
- * Copyright 2018 Texas Digital Library, jim.myers@computer.org
+ * Copyright 2020 GDCC, 2018 Texas Digital Library, jim.myers@computer.org
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,14 +15,26 @@
  ***************************************************************************** */
 package org.sead.uploader.dataverse;
 
+import com.apicatalog.jsonld.document.JsonDocument;
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.StringReader;
+import java.io.StringWriter;
+import java.io.UnsupportedEncodingException;
+import java.math.BigDecimal;
+import java.net.MalformedURLException;
+import java.net.URISyntaxException;
+import java.net.URL;
 import java.security.DigestInputStream;
 import java.security.KeyManagementException;
 import java.security.KeyStoreException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
+import java.util.Enumeration;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
@@ -30,6 +42,13 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
+import javax.json.Json;
+import javax.json.JsonObject;
+import javax.json.JsonWriter;
+import javax.json.JsonWriterFactory;
+import javax.json.stream.JsonGenerator;
 
 import javax.net.ssl.SSLContext;
 
@@ -63,6 +82,9 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 import org.sead.uploader.AbstractUploader;
 import static org.sead.uploader.AbstractUploader.println;
+import org.sead.uploader.util.BagResource;
+import org.sead.uploader.util.BagResourceFactory;
+import org.sead.uploader.util.PublishedResource;
 import org.sead.uploader.util.UploaderException;
 import org.sead.uploader.util.Resource;
 
@@ -75,6 +97,7 @@ public class DVUploader extends AbstractUploader {
 
     private static String apiKey = null;
     private static String datasetPID = null;
+    private static String alias = null;
     private static boolean oldServer = false;
     private static int maxWaitTime = 60;
     private static boolean recurse = false;
@@ -110,9 +133,10 @@ public class DVUploader extends AbstractUploader {
         println("DVUploader - a command-line application to upload files to any Dataverse Dataset");
         println("Developed for the Dataverse Community");
         println("\n----------------------------------------------------------------------------------\n");
+        println(String.join(" ", args).replaceAll("key=[0-9a-fA-F\\-]+", "key=<apiKey>"));
         println("\n***Parsing arguments:***\n");
         uploader.parseArgs(args);
-        if (server == null || datasetPID == null || apiKey == null || requests.isEmpty()) {
+        if (server == null || datasetPID == null || apiKey == null || (requests.isEmpty() && !uploader.getImportRO())) {
             println("\n***Required arguments not found.***");
             usage();
         } else {
@@ -130,6 +154,7 @@ public class DVUploader extends AbstractUploader {
         println("      <serverUrl> = the URL of the server to upload to, e.g. https://datverse.tdl.org");
         println("      <apiKey> = your personal apikey, created in the dataverse server at <serverUrl>");
         println("      <did> = the Dataset DOI you are uploading to, e.g. doi:10.5072/A1B2C3");
+        println("      <createIn> = the alias of the Dataverse you want to create a dataset in");
         println("      <files or directories> = a space separated list of files to upload or directory name(s) where the files to upload are");
         println("\n  Optional Arguments:");
         println("      -directupload    - Use Dataverse's direct upload capability to send files directly to their final location (only works if this is enabled on the server)");
@@ -156,6 +181,10 @@ public class DVUploader extends AbstractUploader {
             datasetPID = arg.substring(arg.indexOf(argSeparator) + 1);
             println("Adding content to: " + datasetPID);
             return true;
+        } else if (arg.startsWith("-createIn")) {
+            alias = arg.substring(arg.indexOf(argSeparator) + 1);
+            println("Will create a Dataset in Dataverse: " + alias);
+            return true;
         } else if (arg.equals("-recurse")) {
             recurse = true;
             println("Will recurse into subdirectories");
@@ -164,7 +193,16 @@ public class DVUploader extends AbstractUploader {
             directUpload = true;
             println("Will use direct upload of files (if configured on this server)");
             return true;
-        } else if (arg.startsWith("-mpsize")) {
+        } else if (arg.startsWith("-bag")) {
+                importRO = true;
+                try {
+                    bagLocation = new URL(arg.substring(arg.indexOf(argSeparator) + 1));
+                } catch (MalformedURLException e) {
+                    println("Unable to interpret " + arg.substring(arg.indexOf(argSeparator) + 1) + " as a URL. Exiting.");
+                    System.exit(0);
+                }
+                println("RO Mode: URL for RDA Bag is : " + bagLocation.toString());
+            } else if (arg.startsWith("-mpsize")) {
             try {
                 mpSizeLimit = Long.parseLong(arg.substring(arg.indexOf(argSeparator) + 1));
             } catch (NumberFormatException nfe) {
@@ -188,6 +226,15 @@ public class DVUploader extends AbstractUploader {
         return false;
     }
 
+    private ZipFile zf = null;
+
+    @Override
+    public void importBag(URL bagLocation) throws URISyntaxException {
+        rf = new BagResourceFactory(bagLocation);
+        doImportRO();
+    }
+    
+    
     @Override
     public HttpClientContext authenticate() {
         return new HttpClientContext();
@@ -214,6 +261,7 @@ public class DVUploader extends AbstractUploader {
 
     CloseableHttpClient httpclient = null;
 
+    
     /**
      *
      * @param path - the current path to the item
@@ -228,8 +276,9 @@ public class DVUploader extends AbstractUploader {
         if (importRO) {
             // remove the '/<ro_id>/data' prefix on imported paths to make
             // it match the file upload paths
-            relPath = relPath.substring(relPath.substring(1).indexOf("/") + 1);
-            relPath = relPath.substring(relPath.substring(1).indexOf("/") + 1);
+            println("in" + path);
+                            relPath= relPath.substring(relPath.indexOf("/data") + 5);
+                            println("out:" + relPath);
         }
 
         String sourcepath = item.getName();
@@ -275,14 +324,20 @@ public class DVUploader extends AbstractUploader {
                 boolean convertedFiles = false;
                 if (datafileList != null) {
                     for (int i = 0; i < datafileList.length(); i++) {
-                        JSONObject df = datafileList.getJSONObject(i).getJSONObject("dataFile");
+                        JSONObject entry = datafileList.getJSONObject(i);
+                        JSONObject df = entry.getJSONObject("dataFile");
                         if (df.has("originalFileFormat")
                                 && (!df.getString("contentType").equals(df.getString("originalFileFormat")))) {
                             println("The file named " + df.getString("filename")
                                     + " on the server was created by Dataverse's ingest process from an original uploaded file");
                             convertedFiles = true;
                         }
-                        existingItems.put(df.getString("filename"), df.getJSONObject("checksum"));
+                        String filepath = df.getString("filename");
+                        if(entry.has("directoryLabel")) {
+                            filepath=entry.get("directoryLabel") + "/" + filepath;
+                        }
+                        println("Recording: " + filepath);
+                        existingItems.put(filepath, df.getJSONObject("checksum"));
                     }
                     if (convertedFiles) {
                         println("*****   DVUploader cannot detect attempts to re-upload files to Dataverse when Dataverse has created a derived file during ingest such as those listed above.");
@@ -321,7 +376,7 @@ public class DVUploader extends AbstractUploader {
                 return null;
             } else {
                 // A file within the local directory
-                if (existingItems.containsKey(sourcepath)) {
+                if ((existingItems != null) && existingItems.containsKey(sourcepath)) {
                     JSONObject checksum = existingItems.get(sourcepath);
                     tagId = checksum.getString("type") + ":" + checksum.getString("value");
                 }
@@ -345,10 +400,92 @@ public class DVUploader extends AbstractUploader {
         return tagId;
     }
 
+    
+    
+   
+    
+//    call Create dataset, 
+//    add semantic metadata
+//    add file metadata when/after creating file
+      
+    
+    @Override
+    protected String preprocessCollection(Resource dir, String path, String parentId, String collectionId) throws UploaderException {
+        // DV - create the dataset or add metadata
+    println("Preproc: " + dir.getName());    
+        if (!listonly) {
+            if (collectionId == null) {
+                if (parentId == null) {
+                    collectionId = createDataset(dir, path);
+                    datasetPID = collectionId;
+                } else {
+                    //    ToDo - folder - folders don't exist - add a md file if there is folder md
+                }
+            } else {
+                // We already have the dataset uploaded so record it's id
+                if (parentId == null) {
+                    addDatasetMetadata(dir);
+                }
+            }
+        } 
+        if (datasetPID != null) {
+            println("Dataset ID: " + datasetPID);
+        }
+        if (!path.equals("/" + dir.getName().trim()) && !recurse) {
+            throw new UploaderException("              DVUploader is not configured to recurse into sub-directories.");
+        }
+        return collectionId;
+    }
+    
+    private String createDataset(Resource dir, String path) {
+        println("In Create");
+        httpclient = getSharedHttpClient();
+        try {
+            String urlString = server + "/api/dataverses/" + alias + "/datasets/:startmigration";
+            urlString = urlString + "?key=" + apiKey;
+            println("Calling " + urlString);
+            HttpPost httppost = new HttpPost(urlString);
+            StringEntity se = null;
+            if(dir instanceof PublishedResource) {
+                println("Sending: " + ((PublishedResource)dir).getMetadata().toString(2));
+              se = new StringEntity(((PublishedResource)dir).getMetadata().toString(2), "utf-8");
+            } else {
+                //ToDo - support creating a dataset from a plain directory
+            }
+            httppost.setEntity(se);
+            httppost.addHeader("Content-Type","application/json-ld");
+
+            CloseableHttpResponse response = httpclient.execute(httppost, getLocalContext());
+            try {
+                if (response.getStatusLine().getStatusCode() == 201) {
+                    HttpEntity resEntity = response.getEntity();
+                    if (resEntity != null) {
+                        String res = EntityUtils.toString(resEntity);
+                        println("Create response: " + res);
+                        datasetPID = Json.createReader(new StringReader(res)).readObject().getJsonObject("data").getString("persistentId");
+                        datasetMDRetrieved = false;
+                        return datasetPID;
+                    }
+                } else {
+                    println("Oops: " + response.getStatusLine().getReasonPhrase());
+                    println("Unable to continue processing");
+                    System.exit(1);
+                }
+            } finally {
+                EntityUtils.consumeQuietly(response.getEntity());
+            }
+        } catch (IOException e) {
+            println(e.getMessage());
+        }
+        
+        return null;
+        
+    }
+    
     @Override
     public void addDatasetMetadata(String newSubject, String type, JSONObject relationships) {
-        // TBD
-        // println("DVUploader does not yet add metadata to a Dataset");
+         // TBD
+        // println("DVUploader does not add relationships separately.");
     }
 
     @Override
@@ -359,19 +496,58 @@ public class DVUploader extends AbstractUploader {
 
     @Override
     protected void postProcessCollection() {
-        // TBD
-        // println("DVUploader does not yet support creation of datasets or uploading
-        // sub-directories and their contents");
+        //importRO is the only time we are using the semantic / migrate API and have to call after uploading files (to trigger dataset release)
+        if (importRO) {
+            httpclient = getSharedHttpClient();
+            // Now post data
+            String urlString = server + "/api/datasets/:persistentId/actions/:releasemigrated";
+            urlString = urlString + "?persistentId=" + datasetPID + "&key=" + apiKey;
+            HttpPost httppost = new HttpPost(urlString);
+            httppost.setHeader("Content-type", "application/json-ld");
+            PublishedResource ds = rf.getParentResource();
 
-    }
+            StringEntity body;
+            try {
+                JsonObject md = Json.createObjectBuilder().add("http://schema.org/datePublished", ds.getMetadata().getString("http://schema.org/datePublished")).build();
+                
+                			StringWriter sw = new StringWriter();
+			Map<String, Object> properties = new HashMap<>(1);
+			properties.put(JsonGenerator.PRETTY_PRINTING, true);
+			JsonWriterFactory writerFactory = Json.createWriterFactory(properties);
+			JsonWriter jsonWriter = writerFactory.createWriter(sw);
+			jsonWriter.write(md);
+			jsonWriter.close();
+			String mdString = sw.toString();
+                        
+                body = new StringEntity(mdString, "utf-8");
+println(mdString);
+                httppost.setEntity(body);
 
-    @Override
-    protected String preprocessCollection(Resource dir, String path, String parentId, String collectionId)
-            throws UploaderException {
-        if (!path.equals("/" + dir.getName().trim()) && !recurse) {
-            throw new UploaderException("              DVUploader is not configured to recurse into sub-directories.");
+                CloseableHttpResponse response = httpclient.execute(httppost, getLocalContext());
+
+                int status = response.getStatusLine().getStatusCode();
+                String res = null;
+                HttpEntity resEntity = response.getEntity();
+                if (resEntity != null) {
+                    res = EntityUtils.toString(resEntity);
+                }
+                println("Status: " + status);
+                if (status != 200) {
+                    println("Error response trying to release migrated file " + ds.getIdentifier() + " : "
+                            + response.getStatusLine().getReasonPhrase());
+                    if(res!=null) {
+                    println(res);
+                    }
+                }
+            } catch (UnsupportedEncodingException ex) {
+                //Not expected
+                println("Unsupported encoding: " + ex.getMessage());
+            } catch (IOException ex) {
+                println("Error trying to release migrated file " + ds.getIdentifier() + " : "
+                        + ex.getMessage());
+            }
+
         }
-        return null;
     }
 
     @Override
@@ -398,9 +574,7 @@ public class DVUploader extends AbstractUploader {
 
     @Override
     protected String uploadDatafile(Resource file, String path) {
-        if (httpclient == null) {
-            httpclient = getSharedHttpClient();
-        }
+        httpclient = getSharedHttpClient();
         String dataId = null;
         int retries = 10;
         if (directUpload) {
@@ -428,8 +602,24 @@ public class DVUploader extends AbstractUploader {
                     if (recurse) {
                         // Dataverse takes paths without an initial / and ending without a /
                         // with the path not including the file name
-                        String parentPath = path.substring(1, path.lastIndexOf("/"));
+                        String parentPath = "";
+                        if(!importRO) {
+                            parentPath= path.substring(1, path.lastIndexOf("/"));
+                        } else {
+                            println(path);
+                            parentPath= path.substring(path.indexOf("/data/") + 6);
+                            println(parentPath);
+                            parentPath= parentPath.substring(parentPath.indexOf("/"));
+                            println(parentPath);
+                            int index = parentPath.lastIndexOf("/");
+                            if(index>=0) {
+                            parentPath = parentPath.substring(0, index);
+                            }
+                            println("result:" + parentPath);
+                    }
+
                         if (!parentPath.isEmpty()) {
+                            println("pp" + parentPath);
                             meb.addTextBody("jsonData", "{\"directoryLabel\":\"" + parentPath + "\"}");
                         }
                     }
@@ -503,9 +693,7 @@ public class DVUploader extends AbstractUploader {
     }
 
     private boolean isLocked() {
-        if (httpclient == null) {
-            httpclient = getSharedHttpClient();
-        }
+        httpclient = getSharedHttpClient();
         try {
             String urlString = server + "/api/datasets/:persistentId/locks";
             urlString = urlString + "?persistentId=" + datasetPID + "&key=" + apiKey;
@@ -912,5 +1100,11 @@ public class DVUploader extends AbstractUploader {
         }
         cm.setDefaultMaxPerRoute(httpConcurrency);
         cm.setMaxTotal(httpConcurrency > 20 ? httpConcurrency : 20);
+    }
+
+
+
+    private void addDatasetMetadata(Resource dir) {
+      dir.getMetadata();
     }
 }
