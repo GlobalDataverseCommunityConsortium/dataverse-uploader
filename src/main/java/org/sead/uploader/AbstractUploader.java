@@ -35,7 +35,6 @@ import org.apache.http.client.protocol.HttpClientContext;
 import org.json.JSONObject;
 import org.sead.uploader.util.FileResource;
 import org.sead.uploader.util.PublishedResource;
-import org.sead.uploader.util.SEAD2PublishedResource;
 import org.sead.uploader.util.Resource;
 import org.sead.uploader.util.ResourceFactory;
 
@@ -197,6 +196,19 @@ public abstract class AbstractUploader {
                         if (file.isDirectory()) {
 
                             String newUri = uploadCollection(file, "", null, tagId);
+                            if (!listonly) { // We're potentially making changes
+                                if (newUri == null) { // a collection for path not on
+                                    // server or we
+                                    // don't care - we have to write
+                                    // the
+                                    // collection
+                                    postProcessCollection();
+                                } else {
+                                    postProcessChildren(file);
+                                }
+                            } else {
+                                newUri = null; // listonly - report no changes
+                            }
 
                             if (newUri != null) {
                                 println("FINALIZING(D): " + file.getPath() + " CREATED as: " + newUri);
@@ -365,7 +377,7 @@ System.out.println("tagId: " + tagId);
             }
             if (!listonly) { // We're potentially making changes
                 postProcessCollection();
-                postProcessChildren();
+                postProcessChildren(dir);
                 if ((collectionId != null) && importRO) {
                     String id = findGeneralizationOf(((PublishedResource) dir).getIdentifier());
 
@@ -389,7 +401,7 @@ System.out.println("tagId: " + tagId);
         return collectionId;
     }
 
-    protected abstract void postProcessChildren();
+    protected abstract void postProcessChildren(Resource dir);
 
     protected abstract void postProcessCollection();
 

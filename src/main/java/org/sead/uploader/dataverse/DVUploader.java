@@ -15,14 +15,16 @@
  ***************************************************************************** */
 package org.sead.uploader.dataverse;
 
-import com.apicatalog.jsonld.document.JsonDocument;
-import java.io.File;
+import jakarta.json.Json;
+import jakarta.json.JsonObject;
+import jakarta.json.JsonWriter;
+import jakarta.json.JsonWriterFactory;
+import jakarta.json.stream.JsonGenerator;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.StringReader;
 import java.io.StringWriter;
 import java.io.UnsupportedEncodingException;
-import java.math.BigDecimal;
 import java.net.MalformedURLException;
 import java.net.URISyntaxException;
 import java.net.URL;
@@ -32,7 +34,6 @@ import java.security.KeyStoreException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
-import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -42,13 +43,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
-import javax.json.Json;
-import javax.json.JsonObject;
-import javax.json.JsonWriter;
-import javax.json.JsonWriterFactory;
-import javax.json.stream.JsonGenerator;
+
 
 import javax.net.ssl.SSLContext;
 
@@ -82,7 +78,6 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 import org.sead.uploader.AbstractUploader;
 import static org.sead.uploader.AbstractUploader.println;
-import org.sead.uploader.util.BagResource;
 import org.sead.uploader.util.BagResourceFactory;
 import org.sead.uploader.util.PublishedResource;
 import org.sead.uploader.util.UploaderException;
@@ -103,11 +98,12 @@ public class DVUploader extends AbstractUploader {
     private static boolean recurse = false;
     private static boolean directUpload = false;
     private static boolean trustCerts = false;
+    private static boolean singleFile = false;
 
     private int timeout = 1200;
     private int httpConcurrency = 4;
 
-    private static long mpSizeLimit = 5 * 1024 * 1024;
+    //private static long mpSizeLimit = 5 * 1024 * 1024;
     private RequestConfig config = RequestConfig.custom()
             .setConnectTimeout(timeout * 1000)
             .setConnectionRequestTimeout(timeout * 1000)
@@ -131,7 +127,7 @@ public class DVUploader extends AbstractUploader {
         println("  T    DDD   LLL  Library");
         println("");
         println("DVUploader - a command-line application to upload files to any Dataverse Dataset");
-        println("Developed for the Dataverse Community");
+        println("Developed with support from TDL and GDCC for the Dataverse Community");
         println("\n----------------------------------------------------------------------------------\n");
         println(String.join(" ", args).replaceAll("key=[0-9a-fA-F\\-]+", "key=<apiKey>"));
         println("\n***Parsing arguments:***\n");
@@ -148,24 +144,25 @@ public class DVUploader extends AbstractUploader {
 
     private static void usage() {
         println("\nUsage:");
-        println("  java -jar DVUploader-1.1.0.jar -server=<serverURL> -key=<apikey> -did=<dataset DOI> <files or directories>");
+        println("  java -jar DVUploader-1.2.0.jar -server=<serverURL> -key=<apikey> -did=<dataset DOI> <files or directories>");
 
         println("\n  where:");
         println("      <serverUrl> = the URL of the server to upload to, e.g. https://datverse.tdl.org");
         println("      <apiKey> = your personal apikey, created in the dataverse server at <serverUrl>");
         println("      <did> = the Dataset DOI you are uploading to, e.g. doi:10.5072/A1B2C3");
-        println("      <createIn> = the alias of the Dataverse you want to create a dataset in");
         println("      <files or directories> = a space separated list of files to upload or directory name(s) where the files to upload are");
         println("\n  Optional Arguments:");
-        println("      -directupload    - Use Dataverse's direct upload capability to send files directly to their final location (only works if this is enabled on the server)");
-        println("      -mpsize      - with direct upload, this is the max size before switching to multipart uploads (Note actual part size is server controlled)");
-        println("      -listonly    - Scan the Dataset and local files and list what would be uploaded (does not upload with this flag)");
-        println("      -limit=<n>   - Specify a maximum number of files to upload per invocation.");
-        println("      -verify      - Check both the file name and checksum in comparing with current Dataset entries.");
-        println("      -skip=<n>    - a number of files to skip before starting processing (saves time when you know the first n files have been uploaded before)");
-        println("      -recurse     - recurse into subdirectories");
-        println("      -maxlockwait - the maximum time to wait (in seconds) for a Dataset lock (i.e. while the last file is ingested) to expire (default 60 seconds)");
-        println("      -trustall    - trust all server certificates (i.e. for use when testing with self-signed certificates)");
+        println("      -directupload      - Use Dataverse's direct upload capability to send files directly to their final location (only works if this is enabled on the server)");
+        println("      -listonly          - Scan the Dataset and local files and list what would be uploaded (does not upload with this flag)");
+        println("      -limit=<n>         - Specify a maximum number of files to upload per invocation.");
+        println("      -verify            - Check both the file name and checksum in comparing with current Dataset entries.");
+        println("      -skip=<n>          - a number of files to skip before starting processing (saves time when you know the first n files have been uploaded before)");
+        println("      -recurse           - recurse into subdirectories");
+        println("      -maxlockwait       - the maximum time to wait (in seconds) for a Dataset lock (i.e. while the last file is ingested) to expire (default 60 seconds)");
+        println("      -trustall          - trust all server certificates (i.e. for use when testing with self-signed server certificates)");
+        println("      -singlefile        - send each file to the server separately (only affects -directupload)");
+        println("      -bag=<URL>         - 'alpha' capbility to create a dataset from a Bag exported by Dataverse. <URL> is the location of the Bag to process.");
+        println("      -createIn=<alias>  - required for Bag import: the alias of the Dataverse you want to create a dataset in");
         println("");
 
     }
@@ -202,17 +199,13 @@ public class DVUploader extends AbstractUploader {
                     System.exit(0);
                 }
                 println("RO Mode: URL for RDA Bag is : " + bagLocation.toString());
-            } else if (arg.startsWith("-mpsize")) {
-            try {
-                mpSizeLimit = Long.parseLong(arg.substring(arg.indexOf(argSeparator) + 1));
-            } catch (NumberFormatException nfe) {
-                println("Unable to parse -mpsize as long, using : " + mpSizeLimit);
-            }
-            println("Will use multipart upload for direct upload files over " + mpSizeLimit + " bytes");
-            return true;
         } else if (arg.equals("-trustall")) {
             trustCerts = true;
             println("Will trust all certificates");
+            return true;
+        } else if (arg.equals("-singlefile")) {
+            singleFile = true;
+            println("Will send files individually");
             return true;
         } else if (arg.startsWith("-maxlockwait")) {
             try {
@@ -233,7 +226,6 @@ public class DVUploader extends AbstractUploader {
         rf = new BagResourceFactory(bagLocation);
         doImportRO();
     }
-    
     
     @Override
     public HttpClientContext authenticate() {
@@ -413,23 +405,25 @@ public class DVUploader extends AbstractUploader {
     protected String preprocessCollection(Resource dir, String path, String parentId, String collectionId) throws UploaderException {
         // DV - create the dataset or add metadata
     println("Preproc: " + dir.getName());    
-        if (!listonly) {
-            if (collectionId == null) {
-                if (parentId == null) {
-                    collectionId = createDataset(dir, path);
-                    datasetPID = collectionId;
+        if (importRO) {
+            if (!listonly) {
+                if (collectionId == null) {
+                    if (parentId == null) {
+                        collectionId = createDataset(dir, path);
+                        datasetPID = collectionId;
+                    } else {
+                        //    ToDo - folder - folders don't exist - add a md file if there is folder md
+                    }
                 } else {
-                    //    ToDo - folder - folders don't exist - add a md file if there is folder md
-                }
-            } else {
-                // We already have the dataset uploaded so record it's id
-                if (parentId == null) {
-                    addDatasetMetadata(dir);
+                    // We already have the dataset uploaded so record it's id
+                    if (parentId == null) {
+                        addDatasetMetadata(dir);
+                    }
                 }
             }
-        } 
-        if (datasetPID != null) {
-            println("Dataset ID: " + datasetPID);
+            if (datasetPID != null) {
+                println("Dataset ID: " + datasetPID);
+            }
         }
         if (!path.equals("/" + dir.getName().trim()) && !recurse) {
             throw new UploaderException("              DVUploader is not configured to recurse into sub-directories.");
@@ -489,9 +483,111 @@ public class DVUploader extends AbstractUploader {
     }
 
     @Override
-    protected void postProcessChildren() {
-        // TBD
-        // println("DVUploader does not need to post-process after files are uploaded");
+    protected void postProcessChildren(Resource dir) {
+        if (!singleFile && directUpload) {
+            //Have to register all the files in this dir with Dataverse
+
+            String urlString = server + "/api/datasets/:persistentId/addFiles";
+            urlString = urlString + "?persistentId=" + datasetPID + "&key=" + apiKey;
+            int retries = 3;
+            while (retries > 0) {
+                HttpPost httppost = new HttpPost(urlString);
+                JSONArray jsonData = new JSONArray();
+                // ContentBody bin = file.getContentBody();
+                MultipartEntityBuilder meb = MultipartEntityBuilder.create();
+                for (Resource file : dir.listResources()) {
+                    if (!file.isDirectory()) {
+                        println("Adding " + file.getName() + " to list: " + file.getMetadata().toString(2));
+
+                        jsonData.put(file.getMetadata());
+                    }
+                }
+                meb.addTextBody("jsonData", jsonData.toString());
+
+                HttpEntity reqEntity = meb.build();
+                httppost.setEntity(reqEntity);
+                try {
+                    CloseableHttpResponse postResponse = httpclient.execute(httppost, getLocalContext());
+
+                    int postStatus = postResponse.getStatusLine().getStatusCode();
+                    String postRes = null;
+                    HttpEntity postEntity = postResponse.getEntity();
+                    if (postEntity != null) {
+                        postRes = EntityUtils.toString(postEntity);
+                        println("Raw response: " +postRes);
+                    }
+
+                    if (postStatus == 200) {
+                        JSONArray files = (new JSONObject(postRes)).getJSONObject("data")
+                                .getJSONArray("Files");
+                        JSONArray errArray = new JSONArray();
+                        List<String> errIds = new ArrayList<String>();
+                        for (int i = 0; i < files.length(); i++) {
+                            JSONObject fileResult = files.getJSONObject(i);
+                            if (fileResult.has("error Code: ")) {
+                                errArray.put(fileResult);
+                                errIds.add(fileResult.getString("storageIdentifier"));
+                            }
+                        }
+                        println((jsonData.length() - errIds.size()) + " files successfully added from this folder");
+                        if (!errIds.isEmpty()) {
+                            println(errIds.size() + " files were not added. Please alert your Dataverse administrator:");
+                            for (Resource file : dir.listResources()) {
+                                if (!file.isDirectory()) {
+                                    String id = file.getMetadata().getString("storageIdentifier");
+                                    int i = errIds.indexOf(id);
+                                    if (i != -1) {
+                                        String msg = errArray.getJSONObject(i).getString("message");
+                                        println("File: " + file.getName() + " failed with error: " + msg);
+                                    }
+                                }
+                            }
+                        }
+                        retries = 0;
+                        int total = 0;
+                        // For new servers, wait up to maxWaitTime for a dataset lock to expire.
+                        while (isLocked() && (total < maxWaitTime)) {
+                            TimeUnit.SECONDS.sleep(1);
+                            total = total + 1;
+                        }
+                    } else if (postStatus == 400 && oldServer) {
+                        // If the call to the lock API fails in isLocked(), oldServer will be set to
+                        // true and
+                        // all we can do for a lock is to keep retrying.
+                        // Unfortunately, the error messages are configurable, so there's no guaranteed
+                        // way to detect
+                        // locks versus other conditions (e.g. file exists), so we can test for unique
+                        // words in the default messages
+                        if ((postRes != null) && postRes.contains("lock")) {
+                            retries--;
+                        } else {
+                            println("Error response when processing files in " + dir.getAbsolutePath() + " : "
+                                    + postResponse.getStatusLine().getReasonPhrase());
+                            // A real error: e.g. This file already exists in the dataset.
+                            if (postRes != null) {
+                                println(postRes);
+                            }
+                            // Skip
+                            retries = 0;
+                        }
+                    } else {
+                        // An error and unlikely that we can recover, so report and move on.
+                        println("Error response when processing files in " + dir.getAbsolutePath() + " : "
+                                + postResponse.getStatusLine().getReasonPhrase());
+                        if (postRes != null) {
+                            println(postRes);
+                        }
+                        retries = 0;
+                    }
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                    retries = 0;
+                } catch (IOException ex) {
+                    retries = 0;
+                    println("Error registering files with Dataverse for : " + dir.getAbsolutePath() + " : " + ex.getMessage());
+                }
+            }
+        }
     }
 
     @Override
@@ -581,7 +677,7 @@ println(mdString);
             try {
 //@Deprecated -used in v4.20                    dataId = directFileUpload(file, path, retries);
                 dataId = multipartDirectFileUpload(file, path, retries);
-          } catch (IOException e) {
+            } catch (IOException e) {
                 println("Error processing request for storage id" + file.getAbsolutePath() + " : " + e.getMessage());
                 retries = 0;
             }
@@ -772,7 +868,7 @@ println(mdString);
                             if (putStatus == 200) {
                                 String localchecksum = Hex.encodeHexString(digestInputStream.getMessageDigest().digest());
                                 dataId = registerFileWithDataverse(file, path, storageIdentifier, localchecksum, retries);
-                                retries=0;
+                                retries = 0;
                             }
                         } catch (IOException e) {
                             e.printStackTrace(System.out);
@@ -827,7 +923,11 @@ println(mdString);
                     if (uploadResponse.has("url")) {
                         String storageIdentifier = uploadResponse.getString("storageIdentifier");
                         String uploadUrl = uploadResponse.getString("url");
-                        HttpPut httpput = new HttpPut(uploadUrl);
+                        /*The .replace("%3B",";") in the next line is a work-around for Dell's Isolon storage S3 implementation which can't handle the endcoded char
+                              in the X-Amz-SignedHeaders param. Currently this is the only place the encoded ; is present and we've confirmed that unencoding also works with Amazon's S3 stores.
+                              If there are ever issues, we could create a -dell flag, only apply this to the specific param involved, etc. to drop this work-around when not needed.
+                            */
+                        HttpPut httpput = new HttpPut(uploadUrl.replace("%3B",";"));
 
                         httpput.addHeader("x-amz-tagging", "dv-state=temp");
                         try {
@@ -851,9 +951,30 @@ println(mdString);
                                     }
                                     if (putStatus == 200) {
                                         String localchecksum = Hex.encodeHexString(digestInputStream.getMessageDigest().digest());
-                                        dataId = registerFileWithDataverse(file, path, storageIdentifier, localchecksum, retries);
-                                        if(dataId!=null) {
-                                            retries=0;
+                                        if (singleFile) {
+                                            dataId = registerFileWithDataverse(file, path, storageIdentifier, localchecksum, retries);
+                                        } else {
+                                            JSONObject jsonData = new JSONObject();
+                                            jsonData.put("storageIdentifier", storageIdentifier);
+                                            jsonData.put("fileName", file.getName());
+                                            jsonData.put("mimeType", file.getMimeType());
+                                            jsonData.put("md5Hash", localchecksum);
+                                            jsonData.put("fileSize", file.length());
+                                            if (recurse) {
+                                                // Dataverse takes paths without an initial / and ending without a /
+                                                // with the path not including the file name
+                                                if (path.substring(1).contains("/")) {
+                                                    String parentPath = path.substring(1, path.lastIndexOf("/"));
+                                                    if (!parentPath.isEmpty()) {
+                                                        jsonData = jsonData.put("directoryLabel", parentPath);
+                                                    }
+                                                }
+                                            }
+                                            file.setMetadata(jsonData);
+                                            dataId = "md5:" + localchecksum;
+                                        }
+                                        if (dataId != null) {
+                                            retries = 0;
                                         } else {
                                             println("Failure registering " + file.getName() + " with Dataverse");
                                         }
@@ -904,7 +1025,11 @@ println(mdString);
                             }
                             remainingSize -= partSize;
                             println("Creating job for " + partSize + " bytes");
-                            HttpPartUploadJob uj = new HttpPartUploadJob(i, uploadUrls.getString(Integer.toString(i)), file, partSize, mpUploadInfoMap);
+                            /*The .replace("%3B",";") in the next line is a work-around for Dell's Isolon storage S3 implementation which can't handle the endcoded char
+                              in the X-Amz-SignedHeaders param. Currently this is the only place the encoded ; is present and we've confirmed that unencoding also works with Amazon's S3 stores.
+                              If there are ever issues, we could create a -dell flag, only apply this to the specific param involved, etc. to drop this work-around when not needed.
+                            */
+                            HttpPartUploadJob uj = new HttpPartUploadJob(i, uploadUrls.getString(Integer.toString(i)).replace("%3B",";"), file, partSize, mpUploadInfoMap);
 
                             executor.execute(uj);
                             i++;
@@ -953,7 +1078,28 @@ println(mdString);
                             status = response.getStatusLine().getStatusCode();
                             if (status == 200) {
                                 println("Successful upload of " + file.getAbsolutePath());
-                                dataId = registerFileWithDataverse(file, path, storageIdentifier, mpUploadInfoMap.get("md5"), retries);
+                                if (singleFile) {
+                                    dataId = registerFileWithDataverse(file, path, storageIdentifier, mpUploadInfoMap.get("md5"), retries);
+                                } else {
+                                    JSONObject jsonData = new JSONObject();
+                                    jsonData.put("storageIdentifier", storageIdentifier);
+                                    jsonData.put("fileName", file.getName());
+                                    jsonData.put("mimeType", file.getMimeType());
+                                    jsonData.put("md5Hash", mpUploadInfoMap.get("md5"));
+                                    jsonData.put("fileSize", file.length());
+                                    if (recurse) {
+                                        // Dataverse takes paths without an initial / and ending without a /
+                                        // with the path not including the file name
+                                        if (path.substring(1).contains("/")) {
+                                            String parentPath = path.substring(1, path.lastIndexOf("/"));
+                                            if (!parentPath.isEmpty()) {
+                                                jsonData = jsonData.put("directoryLabel", parentPath);
+                                            }
+                                        }
+                                    }
+                                    file.setMetadata(jsonData);
+                                    dataId = "md5:" + mpUploadInfoMap.get("md5");
+                                }
                             } else {
                                 println("Partial upload of " + file.getAbsolutePath() + ", complete upload failed with status: " + status);
                             }
@@ -997,23 +1143,24 @@ println(mdString);
 
             // ContentBody bin = file.getContentBody();
             MultipartEntityBuilder meb = MultipartEntityBuilder.create();
-            // meb.addPart("file", bin);
-            String jsonData = "{\"storageIdentifier\":\"" + storageIdentifier + "\",\"fileName\":\""
-                    + file.getName() + "\",\"mimeType\":\"" + file.getMimeType() + "\",\"md5Hash\":\"" + checksum + "\",\"fileSize\":\"" + file.length() + "\"";
+
+            JSONObject jsonData = new JSONObject();
+            jsonData.put("storageIdentifier", storageIdentifier);
+            jsonData.put("fileName", file.getName());
+            jsonData.put("mimeType", file.getMimeType());
+            jsonData.put("md5Hash", checksum);
+            jsonData.put("fileSize", file.length());
             if (recurse) {
                 // Dataverse takes paths without an initial / and ending without a /
                 // with the path not including the file name
                 if (path.substring(1).contains("/")) {
                     String parentPath = path.substring(1, path.lastIndexOf("/"));
-                    jsonData = jsonData
-                            + (!parentPath.isEmpty() ? ",\"directoryLabel\":\"" + parentPath + "\"}"
-                            : "}");
-
+                    if (!parentPath.isEmpty()) {
+                        jsonData = jsonData.put("directoryLabel", parentPath);
+                    }
                 }
-            } else {
-                jsonData = jsonData + "}";
             }
-            meb.addTextBody("jsonData", jsonData);
+            meb.addTextBody("jsonData", jsonData.toString());
 
             HttpEntity reqEntity = meb.build();
             httppost.setEntity(reqEntity);

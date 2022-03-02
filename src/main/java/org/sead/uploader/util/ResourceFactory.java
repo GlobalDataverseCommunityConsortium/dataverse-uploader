@@ -36,17 +36,19 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 import org.sead.uploader.clowder.SEADUploader;
 
-import javax.json.Json;
-import javax.json.JsonStructure;
 
-import com.apicatalog.jsonld.api.JsonLdError;
+
+import com.apicatalog.jsonld.JsonLdError;
 import com.apicatalog.jsonld.document.JsonDocument;
+import jakarta.json.Json;
+import jakarta.json.JsonArray;
+import jakarta.json.JsonObject;
+import jakarta.json.JsonStructure;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import java.io.StringReader;
-import java.math.BigDecimal;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import java.util.stream.Collectors;
-import javax.json.JsonArray;
-import javax.json.JsonObject;
 
 public class ResourceFactory {
 
@@ -124,17 +126,16 @@ public class ResourceFactory {
                 mapString = EntityUtils.toString(he, "UTF-8");
             }
         } catch (URISyntaxException | IOException e) {
-            // TODO Auto-generated catch block
-            e.printStackTrace();
+            System.out.println("Exception using " + oremapURL.toString() + " : " + e.getLocalizedMessage());
         }
         createOreMapFromString(mapString);
     }
     
-    void createOreMapFromString(String mapString) {
+    final void createOreMapFromString(String mapString) {
         JsonStructure struct;
         struct = Json.createReader(new StringReader(mapString)).readObject();
         JsonDocument doc = JsonDocument.of(struct);
-        JsonArray array = null;
+        JsonArray array;
         try {
             array = JsonLd.expand(doc).get();
             JsonStructure context;
@@ -156,7 +157,7 @@ System.out.println(mapString);
         
         rootPath = "/" + aggId + "/data/" + aggregation.getString("Title");
         aggregates = aggregation.getJSONArray("aggregates");
-        ArrayList<String> l = new ArrayList<String>(aggregates.length() + 1);
+        ArrayList<String> l = new ArrayList<>(aggregates.length() + 1);
         l.add(aggId);
         for (int i = 0; i < aggregates.length(); i++) {
             l.add(aggregates.getJSONObject(i).getString("@id"));
@@ -166,7 +167,7 @@ System.out.println(mapString);
 
     }
 
-    HttpEntity getURI(URI uri) {
+    final HttpEntity getURI(URI uri) {
         int tries = 0;
         while (tries < 5) {
             try {
@@ -183,7 +184,7 @@ System.out.println(mapString);
             } catch (ClientProtocolException e) {
                 tries += 5;
                 // TODO Auto-generated catch block
-                e.printStackTrace();
+                System.out.println("Error getting " + uri.toString() + " : " + e.getMessage());
             } catch (IOException e) {
                 // Retry if this is a potentially temporary error such
                 // as a timeout
@@ -194,7 +195,7 @@ System.out.println(mapString);
 					log.error("Final attempt failed for " + uri);
 				}
                  */
-                e.printStackTrace();
+                System.out.println("Retry error on attempt: " + tries + " : " + e.getMessage());
             }
         }
         return null;
@@ -224,13 +225,13 @@ System.out.println(mapString);
 
     public String getURIForContextEntry(String key) {
         if (grayContext == null) {
-            grayContext = new HashMap<String, String>();
+            grayContext = new HashMap<>();
             for (String oldKey : graySwaps.keySet()) {
                 grayContext.put(graySwaps.get(oldKey),
                         grayConversions.get(oldKey));
             }
         }
-        String uri = null;
+        String uri;
         if (oreTerms.contains(key)) {
             uri = orePredBaseString + key;
         } else if ("Metadata on Original".equals(key)) {
@@ -254,7 +255,7 @@ System.out.println(mapString);
 
     private String[] words = {"describes", "AggregatedResource",
         "Aggregation", "ResourceMap", "similarTo", "aggregates"};
-    private HashSet<String> oreTerms = new HashSet<String>(Arrays.asList(words));
+    private HashSet<String> oreTerms = new HashSet<>(Arrays.asList(words));
 
     private String orePredBaseString = "http://www.openarchives.org/ore/terms/";
 

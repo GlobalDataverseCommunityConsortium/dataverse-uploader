@@ -7,14 +7,11 @@ package org.sead.uploader.util;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.math.BigDecimal;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
-import javax.json.Json;
-import javax.json.JsonObjectBuilder;
 import org.apache.http.HttpEntity;
 import org.apache.http.entity.ContentType;
 import org.apache.http.entity.mime.content.ContentBody;
@@ -236,6 +233,12 @@ public class PublishedResource extends Resource {
         }
         return null;
     }
+    
+    @Override
+    public void setMetadata(JSONObject metadata) {
+        throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+    }
+
 
     public void setAbsolutePath(String abspath) {
         absPath = abspath;

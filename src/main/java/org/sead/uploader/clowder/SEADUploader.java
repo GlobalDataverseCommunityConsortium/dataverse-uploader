@@ -1903,7 +1903,7 @@ public class SEADUploader extends AbstractUploader {
     }
 
     @Override
-    protected void postProcessChildren() {
+    protected void postProcessChildren(Resource dir) {
         // TODO Auto-generated method stub
 
     }

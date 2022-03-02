@@ -12,13 +12,6 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Map;
 import org.apache.commons.codec.binary.Hex;
-import org.apache.http.HttpEntity;
-import org.apache.http.client.methods.CloseableHttpResponse;
-import org.apache.http.client.methods.HttpPut;
-import org.apache.http.client.protocol.HttpClientContext;
-import org.apache.http.entity.InputStreamEntity;
-import org.apache.http.impl.client.CloseableHttpClient;
-import org.apache.http.util.EntityUtils;
 import static org.sead.uploader.AbstractUploader.println;
 import org.sead.uploader.util.Resource;
 
@@ -41,12 +34,14 @@ public class MD5Job implements Runnable {
 	 * 
 	 * @see java.lang.Runnable#run()
      */
+    @Override
     public void run() {
         try {
             MessageDigest messageDigest = MessageDigest.getInstance("MD5");
 
             try (InputStream inStream = file.getInputStream(); DigestInputStream digestInputStream = new DigestInputStream(inStream, messageDigest)) {
-                byte[] bytes = new byte[64*1024];
+                byte[] bytes;
+                bytes = new byte[64*1024];
                 while(digestInputStream.read(bytes) >= 0) {
                 }
                 String checksum = Hex.encodeHexString(digestInputStream.getMessageDigest().digest());
