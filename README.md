@@ -19,6 +19,6 @@ For Clowder/SEAD-specific information, see https://opensource.ncsa.illinois.edu/
 
 Build:
 
- maven clean compile assembly:single
+ mvn clean compile assembly:single
  
  Usage: See wiki: https://github.com/GlobalDataverseCommunityConsortium/dataverse-uploader/wiki/DVUploader,-a-Command-line-Bulk-Uploader-for-Dataverse
