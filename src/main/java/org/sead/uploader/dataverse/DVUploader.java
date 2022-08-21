@@ -128,6 +128,8 @@ public class DVUploader extends AbstractUploader {
         println("");
         println("DVUploader - a command-line application to upload files to any Dataverse Dataset");
         println("Developed with support from TDL and GDCC for the Dataverse Community");
+        println("See the wiki at https://github.com/GlobalDataverseCommunityConsortium/dataverse-uploader for information on using DVUploader.");
+        
         println("\n----------------------------------------------------------------------------------\n");
         println(String.join(" ", args).replaceAll("key=[0-9a-fA-F\\-]+", "key=<apiKey>"));
         println("\n***Parsing arguments:***\n");
@@ -140,6 +142,9 @@ public class DVUploader extends AbstractUploader {
             uploader.processRequests();
         }
         println("\n***Execution Complete.***");
+        println("\n***If any errors were shown, you may want to rerun DVUploader to assure that all files uploaded. For persistent issues, contact your Dataverse admin.***");
+        println("\n***Execution Complete.***");
+        
     }
 
     private static void usage() {
@@ -163,6 +168,8 @@ public class DVUploader extends AbstractUploader {
         println("      -singlefile        - send each file to the server separately (only affects -directupload)");
         println("      -bag=<URL>         - 'alpha' capbility to create a dataset from a Bag exported by Dataverse. <URL> is the location of the Bag to process.");
         println("      -createIn=<alias>  - required for Bag import: the alias of the Dataverse you want to create a dataset in");
+        println("");
+        println("See https://github.com/GlobalDataverseCommunityConsortium/dataverse-uploader/wiki/DVUploader,-a-Command-line-Bulk-Uploader-for-Dataverse for more usage information.");
         println("");
 
     }
@@ -489,7 +496,7 @@ public class DVUploader extends AbstractUploader {
 
             String urlString = server + "/api/datasets/:persistentId/addFiles";
             urlString = urlString + "?persistentId=" + datasetPID + "&key=" + apiKey;
-            int retries = 3;
+            int retries = 5;
             while (retries > 0) {
                 HttpPost httppost = new HttpPost(urlString);
                 JSONArray jsonData = new JSONArray();
@@ -580,10 +587,10 @@ public class DVUploader extends AbstractUploader {
                         retries = 0;
                     }
                 } catch (InterruptedException e) {
-                    e.printStackTrace();
+                    println("Error waiting for Dataverse dataset lock after: " + dir.getAbsolutePath());
                     retries = 0;
                 } catch (IOException ex) {
-                    retries = 0;
+                    retries = retries--;
                     println("Error registering files with Dataverse for : " + dir.getAbsolutePath() + " : " + ex.getMessage());
                 }
             }
@@ -672,7 +679,7 @@ println(mdString);
     protected String uploadDatafile(Resource file, String path) {
         httpclient = getSharedHttpClient();
         String dataId = null;
-        int retries = 10;
+        int retries = 5;
         if (directUpload) {
             try {
 //@Deprecated -used in v4.20                    dataId = directFileUpload(file, path, retries);
@@ -780,7 +787,7 @@ println(mdString);
 
                 } catch (IOException e) {
                     println("Error processing " + file.getAbsolutePath() + " : " + e.getMessage());
-                    retries = 0;
+                    retries = retries - 1;
                 }
             }
         }
@@ -823,6 +830,7 @@ println(mdString);
         return false;
     }
 
+    @Deprecated
     private String directFileUpload(Resource file, String path, int retries) throws IOException {
         String dataId = null;
         while (retries > 0) {
@@ -877,10 +885,8 @@ println(mdString);
                         }
                     }
                 } else {
-                    if (status > 500) {
-                        retries--;
-                    } else {
-                        retries = 0;
+                    if (status >= 500) {
+                        retries=0;
                     }
                 }
 
@@ -897,12 +903,13 @@ println(mdString);
 
     private String multipartDirectFileUpload(Resource file, String path, int retries) throws IOException {
         String dataId = null;
-        while (retries > 0) {
-            // Start multipart upload with a call to Dataverse. It will make a call to S3 to start the multipart upload and will return a set of presigned Urls for us to upload the parts
-            String urlString = server + "/api/datasets/:persistentId/uploadurls";
-            urlString = urlString + "?persistentId=doi:" + datasetPID.substring(4) + "&key=" + apiKey + "&size=" + file.length();
-            HttpGet httpget = new HttpGet(urlString);
-            CloseableHttpResponse response = httpclient.execute(httpget, getLocalContext());
+        
+        while (retries > 0) {        
+        // Start multipart upload with a call to Dataverse. It will make a call to S3 to start the multipart upload and will return a set of presigned Urls for us to upload the parts
+        String urlString = server + "/api/datasets/:persistentId/uploadurls";
+        urlString = urlString + "?persistentId=doi:" + datasetPID.substring(4) + "&key=" + apiKey + "&size=" + file.length();
+        HttpGet httpget = new HttpGet(urlString);
+        CloseableHttpResponse response = httpclient.execute(httpget, getLocalContext());
             try {
                 int status = response.getStatusLine().getStatusCode();
 
@@ -1063,11 +1070,9 @@ println(mdString);
                             println("Part uploads Completed for " + storageIdentifier);
                             HttpPut completeUpload = new HttpPut(server + completeUrl + "&key=" + apiKey);
                             JSONObject eTags = new JSONObject();
-                            for (String partNo : (Set<String>) mpUploadInfoMap.keySet()) {
-                                if (!partNo.equals("md5")) {
-                                    eTags.put(partNo, mpUploadInfoMap.get(partNo));
-                                }
-                            }
+                            ((Set<String>) mpUploadInfoMap.keySet()).stream().filter(partNo -> (!partNo.equals("md5"))).forEachOrdered(partNo -> {
+                                eTags.put(partNo, mpUploadInfoMap.get(partNo));
+                            });
                             StringEntity body = new StringEntity(eTags.toString());
                             println("ETags: " + eTags.toString());
                             completeUpload.setEntity(body);
@@ -1121,7 +1126,7 @@ println(mdString);
                         }
                     }
                 } else {
-                    println("Retrying: return status was : " + status);
+                    println("Retrying request for file upload URL(s): return status was : " + status);
                     retries--;
                 }
             } catch (IOException e) {
