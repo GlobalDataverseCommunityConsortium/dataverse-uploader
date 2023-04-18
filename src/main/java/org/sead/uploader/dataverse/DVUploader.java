@@ -493,10 +493,23 @@ public class DVUploader extends AbstractUploader {
     protected void postProcessChildren(Resource dir) {
         if (!singleFile && directUpload) {
             //Have to register all the files in this dir with Dataverse
-
+            int retries = 5;
+            //In case of prior 504 (or other) errors, make sure the dataset is OK before adding files
+            int total = 0;
+            // For new servers, wait up to maxWaitTime for a dataset lock to expire.
+            try {
+                while (isLocked() && (total < maxWaitTime)) {
+                    TimeUnit.SECONDS.sleep(1);
+                    total = total + 1;
+                }
+            } catch(InterruptedException ie) {
+                println("Error waiting for Dataverse dataset lock - skipping: " + dir.getAbsolutePath());
+                retries=0;
+            }
+                            
             String urlString = server + "/api/datasets/:persistentId/addFiles";
             urlString = urlString + "?persistentId=" + datasetPID + "&key=" + apiKey;
-            int retries = 5;
+            
             while (retries > 0) {
                 HttpPost httppost = new HttpPost(urlString);
                 JSONArray jsonData = new JSONArray();
@@ -551,7 +564,7 @@ public class DVUploader extends AbstractUploader {
                             }
                         }
                         retries = 0;
-                        int total = 0;
+                        total = 0;
                         // For new servers, wait up to maxWaitTime for a dataset lock to expire.
                         while (isLocked() && (total < maxWaitTime)) {
                             TimeUnit.SECONDS.sleep(1);
