@@ -156,9 +156,19 @@ System.out.println(mapString);
         }
         
         rootPath = "/" + aggId + "/data/" + aggregation.getString("Title");
-        aggregates = aggregation.getJSONArray("aggregates");
+        
+        aggregates = aggregation.optJSONArray("aggregates");
+        if(aggregates==null) {
+            JSONObject  singleFile = aggregation.optJSONObject("aggregates");
+            aggregates= new JSONArray();
+            if(singleFile!=null) {
+                aggregates.put(singleFile);
+            }
+        }
+
         ArrayList<String> l = new ArrayList<>(aggregates.length() + 1);
         l.add(aggId);
+
         for (int i = 0; i < aggregates.length(); i++) {
             l.add(aggregates.getJSONObject(i).getString("@id"));
         }

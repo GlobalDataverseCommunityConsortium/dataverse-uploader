@@ -141,7 +141,7 @@ public class PublishedResource extends Resource {
             if (o instanceof JSONArray) {
                 return (JSONArray) o;
             } else if (o instanceof String) {
-                return new JSONArray("[	" + (String) o + " ]");
+                return new JSONArray("[	\"" + (String) o + "\" ]");
             }
             return new JSONArray();
         }
