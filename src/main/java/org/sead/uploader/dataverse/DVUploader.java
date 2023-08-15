@@ -96,7 +96,7 @@ public class DVUploader extends AbstractUploader {
     private static boolean oldServer = false;
     private static int maxWaitTime = 60;
     private static boolean recurse = false;
-    private static boolean directUpload = false;
+    private static boolean directUpload = true;
     private static boolean trustCerts = false;
     private static boolean singleFile = false;
 
@@ -157,7 +157,7 @@ public class DVUploader extends AbstractUploader {
         println("      <did> = the Dataset DOI you are uploading to, e.g. doi:10.5072/A1B2C3");
         println("      <files or directories> = a space separated list of files to upload or directory name(s) where the files to upload are");
         println("\n  Optional Arguments:");
-        println("      -directupload      - Use Dataverse's direct upload capability to send files directly to their final location (only works if this is enabled on the server)");
+        println("      -uploadviaserver      - Use Dataverse's indirect upload capability. This makes temporary copies of files on the Dataverse server, puts a greater workload on the server and is not suitable for large files, but it can be used when direct uploads are not enabled for a given dataset.");
         println("      -listonly          - Scan the Dataset and local files and list what would be uploaded (does not upload with this flag)");
         println("      -limit=<n>         - Specify a maximum number of files to upload per invocation.");
         println("      -verify            - Check both the file name and checksum in comparing with current Dataset entries.");
@@ -165,7 +165,7 @@ public class DVUploader extends AbstractUploader {
         println("      -recurse           - recurse into subdirectories");
         println("      -maxlockwait       - the maximum time to wait (in seconds) for a Dataset lock (i.e. while the last file is ingested) to expire (default 60 seconds)");
         println("      -trustall          - trust all server certificates (i.e. for use when testing with self-signed server certificates)");
-        println("      -singlefile        - send each file to the server separately (only affects -directupload)");
+        println("      -singlefile        - send each file to the server separately (only affects directupload/ when -uploadviaserver is not set)");
         println("      -bag=<URL>         - 'alpha' capbility to create a dataset from a Bag exported by Dataverse. <URL> is the location of the Bag to process.");
         println("      -createIn=<alias>  - required for Bag import: the alias of the Dataverse you want to create a dataset in");
         println("");
@@ -193,9 +193,9 @@ public class DVUploader extends AbstractUploader {
             recurse = true;
             println("Will recurse into subdirectories");
             return true;
-        } else if (arg.equals("-directupload")) {
-            directUpload = true;
-            println("Will use direct upload of files (if configured on this server)");
+        } else if (arg.equals("-uploadviaserver")) {
+            directUpload = false;
+            println("Will not use direct upload of files (not recommended for large files)");
             return true;
         } else if (arg.startsWith("-bag")) {
                 importRO = true;
@@ -1140,7 +1140,12 @@ println(mdString);
                     }
                 } else {
                     println("Retrying request for file upload URL(s): return status was : " + status);
-                    retries--;
+                    if(status == 404) {
+                        println("Direct Uploads are not enabled for this dataset. You should contact the Dataverse administrator or, for smaller files, consider using the less efficient -uploadviaserver flag.");
+                        retries = 0;
+                    } else {
+                        retries--;
+                    }
                 }
             } catch (IOException e) {
                 e.printStackTrace(System.out);
