@@ -19,14 +19,16 @@ import org.sead.uploader.util.Resource;
  *
  * @author Jim
  */
-public class MD5Job implements Runnable {
+public class DigestJob implements Runnable {
 
     Resource file;
     Map infoMap;
+    final String alg;
 
-    public MD5Job(Resource file, Map infoMap) throws IllegalStateException {
+    public DigestJob(Resource file, Map infoMap, String alg) throws IllegalStateException {
         this.file = file;
         this.infoMap = infoMap;
+        this.alg = alg;
     }
 
     /*
@@ -37,7 +39,7 @@ public class MD5Job implements Runnable {
     @Override
     public void run() {
         try {
-            MessageDigest messageDigest = MessageDigest.getInstance("MD5");
+            MessageDigest messageDigest = MessageDigest.getInstance(alg);
 
             try (InputStream inStream = file.getInputStream(); DigestInputStream digestInputStream = new DigestInputStream(inStream, messageDigest)) {
                 byte[] bytes;
@@ -45,13 +47,13 @@ public class MD5Job implements Runnable {
                 while(digestInputStream.read(bytes) >= 0) {
                 }
                 String checksum = Hex.encodeHexString(digestInputStream.getMessageDigest().digest());
-                infoMap.put("md5", checksum);
+                infoMap.put(alg, checksum);
             } catch (IOException e) {
                 e.printStackTrace(System.out);
                 println("Error calculating digest for: " + file.getAbsolutePath() + " : " + e.getMessage());
             }
         } catch (NoSuchAlgorithmException nsae) {
-            println("MD5 algorithm not found: " + nsae.getMessage());
+            println("Fixity algorithm not found: " + nsae.getMessage());
         }
     }
 }

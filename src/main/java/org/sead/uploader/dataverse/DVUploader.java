@@ -99,6 +99,8 @@ public class DVUploader extends AbstractUploader {
     private static boolean directUpload = true;
     private static boolean trustCerts = false;
     private static boolean singleFile = false;
+    
+    private String fixityAlgorithm = "MD5";
 
     private int timeout = 1200;
     private int httpConcurrency = 4;
@@ -225,7 +227,54 @@ public class DVUploader extends AbstractUploader {
         }
         return false;
     }
+    
+    
+    @Override
+    public void processRequests() {
+                    httpclient = getSharedHttpClient();
 
+            try {
+                // This api call will check for the fixityAlgorithm. Before v5.14, Dataverse servers should respond with a 404 and we'll use the default.
+                // http://$SERVER/api/files/fixityAlgorithm
+
+                String serviceUrl = server + "/api/files/fixityAlgorithm";
+                HttpGet httpget = new HttpGet(serviceUrl);
+
+                CloseableHttpResponse response = httpclient.execute(httpget, getLocalContext());
+                 try {
+                    switch (response.getStatusLine().getStatusCode()) {
+                        case 200:
+                            HttpEntity resEntity = response.getEntity();
+                            if (resEntity != null) {
+                                String res = EntityUtils.toString(resEntity);
+                                String alg = (new JSONObject(res)).getJSONObject("data").getString("message");
+                                try{
+                                    MessageDigest.getInstance(alg);
+                                    fixityAlgorithm = alg;
+                                    println("Using FixityAlgorithm configured for this Dataverse: " + fixityAlgorithm);
+                                } catch (NoSuchAlgorithmException e) {
+                                    println("Unknown FixityAlgorithm requested by this Dataverse: " + alg + ", using the default: " + fixityAlgorithm);
+                                }
+                            }
+                            break;
+                        case 404:
+                            println("FixityAlgorithm API call not available, using the default: " + fixityAlgorithm);
+                            break;
+                        default:
+                            // Report unexpected errors and assume dataset doesn't exist
+                            println("Error response when checking for fixityAlgorithm: "
+                                    + response.getStatusLine().getReasonPhrase());
+                            break;
+                    }
+                } finally {
+                    response.close();
+                }
+            } catch (IOException e) {
+                println("Error processing fixityAlgorithm API request: " + e.getMessage());
+            }
+        super.processRequests();
+    }
+    
     private ZipFile zf = null;
 
     @Override
@@ -951,7 +1000,7 @@ println(mdString);
 
                         httpput.addHeader("x-amz-tagging", "dv-state=temp");
                         try {
-                            MessageDigest messageDigest = MessageDigest.getInstance("MD5");
+                            MessageDigest messageDigest = MessageDigest.getInstance(fixityAlgorithm);
 
                             try (InputStream inStream = file.getInputStream(); DigestInputStream digestInputStream = new DigestInputStream(inStream, messageDigest)) {
                                 // This is hte new form for requests - keeping the example but won't update until we can change all
@@ -978,7 +1027,10 @@ println(mdString);
                                             jsonData.put("storageIdentifier", storageIdentifier);
                                             jsonData.put("fileName", file.getName());
                                             jsonData.put("mimeType", file.getMimeType());
-                                            jsonData.put("md5Hash", localchecksum);
+                                            JSONObject inputChecksumObject = new JSONObject();
+                                            inputChecksumObject.put("@type", fixityAlgorithm);
+                                            inputChecksumObject.put("@value", localchecksum);
+                                            jsonData.put("checksum", inputChecksumObject);
                                             jsonData.put("fileSize", file.length());
                                             if (recurse) {
                                                 // Dataverse takes paths without an initial / and ending without a /
@@ -991,7 +1043,7 @@ println(mdString);
                                                 }
                                             }
                                             file.setMetadata(jsonData);
-                                            dataId = "md5:" + localchecksum;
+                                            dataId = fixityAlgorithm + ":" + localchecksum;
                                         }
                                         if (dataId != null) {
                                             retries = 0;
@@ -1007,7 +1059,7 @@ println(mdString);
                             }
 
                         } catch (NoSuchAlgorithmException nsae) {
-                            println("MD5 algorithm not found: " + nsae.getMessage());
+                            println("Fixity algorithm not found: " + nsae.getMessage());
                         }
                     } else {
 
@@ -1027,11 +1079,11 @@ println(mdString);
                         HttpPartUploadJob.setHttpClientContext(getLocalContext());
                         HttpPartUploadJob.setPartSize(maxPartSize);
 
-                        //Create a map to store the eTags from the parts and the md5 calculated for the whole file
+                        //Create a map to store the eTags from the parts and the fixityAlg calculated for the whole file
                         Map<String, String> mpUploadInfoMap = new HashMap<String, String>(uploadUrls.length() + 1);
-                        //Setup a job to calculate the md5 hash of the file
+                        //Setup a job to calculate the fixityAlg hash of the file
                         //Probably helpful to have it run in parallel, but it could be a pre or post step as well. If the network is fast relative to disk, we may want the executor to use one extra thread for this
-                        MD5Job mjob = new MD5Job(file, mpUploadInfoMap);
+                        DigestJob mjob = new DigestJob(file, mpUploadInfoMap, fixityAlgorithm);
                         executor.execute(mjob);
 
                         //Now set up upload jobs for each part
@@ -1075,15 +1127,15 @@ println(mdString);
                                 break;
                             }
                         }
-                        //Technically, the uploads to S3 could succeed and only the md5 fails, but in this case we still want to abort the MP Upload, not complete it.
-                        if (!mpUploadInfoMap.containsKey("md5")) {
+                        //Technically, the uploads to S3 could succeed and only the fixityAlg fails, but in this case we still want to abort the MP Upload, not complete it.
+                        if (!mpUploadInfoMap.containsKey(fixityAlgorithm)) {
                             fileUploadComplete = false;
                         }
                         if (fileUploadComplete) {
                             println("Part uploads Completed for " + storageIdentifier);
                             HttpPut completeUpload = new HttpPut(server + completeUrl + "&key=" + apiKey);
                             JSONObject eTags = new JSONObject();
-                            ((Set<String>) mpUploadInfoMap.keySet()).stream().filter(partNo -> (!partNo.equals("md5"))).forEachOrdered(partNo -> {
+                            ((Set<String>) mpUploadInfoMap.keySet()).stream().filter(partNo -> (!partNo.equals(fixityAlgorithm))).forEachOrdered(partNo -> {
                                 eTags.put(partNo, mpUploadInfoMap.get(partNo));
                             });
                             StringEntity body = new StringEntity(eTags.toString());
@@ -1097,13 +1149,16 @@ println(mdString);
                             if (status == 200) {
                                 println("Successful upload of " + file.getAbsolutePath());
                                 if (singleFile) {
-                                    dataId = registerFileWithDataverse(file, path, storageIdentifier, mpUploadInfoMap.get("md5"), retries);
+                                    dataId = registerFileWithDataverse(file, path, storageIdentifier, mpUploadInfoMap.get(fixityAlgorithm), retries);
                                 } else {
                                     JSONObject jsonData = new JSONObject();
                                     jsonData.put("storageIdentifier", storageIdentifier);
                                     jsonData.put("fileName", file.getName());
                                     jsonData.put("mimeType", file.getMimeType());
-                                    jsonData.put("md5Hash", mpUploadInfoMap.get("md5"));
+                                    JSONObject inputChecksumObject = new JSONObject();
+                                    inputChecksumObject.put("@type", fixityAlgorithm);
+                                    inputChecksumObject.put("@value", mpUploadInfoMap.get(fixityAlgorithm));
+                                    jsonData.put("checksum", inputChecksumObject);
                                     jsonData.put("fileSize", file.length());
                                     if (recurse) {
                                         // Dataverse takes paths without an initial / and ending without a /
@@ -1116,7 +1171,7 @@ println(mdString);
                                         }
                                     }
                                     file.setMetadata(jsonData);
-                                    dataId = "md5:" + mpUploadInfoMap.get("md5");
+                                    dataId = fixityAlgorithm + ":" + mpUploadInfoMap.get(fixityAlgorithm);
                                 }
                             } else {
                                 println("Partial upload of " + file.getAbsolutePath() + ", complete upload failed with status: " + status);
@@ -1171,7 +1226,10 @@ println(mdString);
             jsonData.put("storageIdentifier", storageIdentifier);
             jsonData.put("fileName", file.getName());
             jsonData.put("mimeType", file.getMimeType());
-            jsonData.put("md5Hash", checksum);
+            JSONObject inputChecksumObject = new JSONObject();
+            inputChecksumObject.put("@type", fixityAlgorithm);
+            inputChecksumObject.put("@value", checksum);
+            jsonData.put("checksum", inputChecksumObject);
             jsonData.put("fileSize", file.length());
             if (recurse) {
                 // Dataverse takes paths without an initial / and ending without a /
