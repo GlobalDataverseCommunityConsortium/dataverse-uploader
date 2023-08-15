@@ -517,7 +517,7 @@ public class DVUploader extends AbstractUploader {
                 MultipartEntityBuilder meb = MultipartEntityBuilder.create();
                 for (Resource file : dir.listResources()) {
                     if (!file.isDirectory()) {
-                        println("Adding " + file.getName() + " to list: " + file.getMetadata().toString(2));
+                        //println("Adding " + file.getName() + " to list: " + file.getMetadata().toString(2));
 
                         jsonData.put(file.getMetadata());
                     }
@@ -534,7 +534,7 @@ public class DVUploader extends AbstractUploader {
                     HttpEntity postEntity = postResponse.getEntity();
                     if (postEntity != null) {
                         postRes = EntityUtils.toString(postEntity);
-                        println("Raw response: " +postRes);
+                        //println("Raw response: " +postRes);
                     }
 
                     if (postStatus == 200) {
@@ -932,7 +932,7 @@ println(mdString);
                     jsonResponse = EntityUtils.toString(resEntity);
                 }
                 if (status == 200) {
-                    println(jsonResponse);
+                    //println(jsonResponse);
                     JSONObject uploadResponse = (new JSONObject(jsonResponse)).getJSONObject("data");
                     //Along with the parts, which should be listed numerically, we get convenience URLs to call on Dataverse to abort or complete the multipart upload
                     //backwards compat in testing

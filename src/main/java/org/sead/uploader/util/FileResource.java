@@ -171,7 +171,7 @@ public class FileResource extends Resource {
     
     @Override
     public void setMetadata(JSONObject jo) {
-        System.out.println("Storing " + jo.toString(2) );
+        //System.out.println("Storing " + jo.toString(2) );
         metadata=jo;
     }
 
