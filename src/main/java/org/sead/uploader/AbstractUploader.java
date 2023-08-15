@@ -34,6 +34,7 @@ import org.apache.http.client.ClientProtocolException;
 import org.apache.http.client.protocol.HttpClientContext;
 import org.json.JSONObject;
 import org.sead.uploader.util.FileResource;
+import org.sead.uploader.util.ListResource;
 import org.sead.uploader.util.PublishedResource;
 import org.sead.uploader.util.Resource;
 import org.sead.uploader.util.ResourceFactory;
@@ -183,7 +184,9 @@ public abstract class AbstractUploader {
                     importRO(oremapURL);
                 }
             } else {
-
+                //Gather files named individually
+                ListResource topLevel = new ListResource("Individual files on command line");
+                
                 for (String request : requests) {
                     // It's a local path to a file or dir
                     Resource file = new FileResource(request);
@@ -222,6 +225,7 @@ public abstract class AbstractUploader {
                                 String newUri = uploadDatafile(file, null, tagId);
                                 if (newUri != null) {
                                     println("              UPLOADED as: " + newUri);
+                                    topLevel.addResource(file);
                                     globalFileCount++;
                                     totalBytes += file.length();
                                     println("CURRENT TOTAL: " + globalFileCount + " files :" + totalBytes + " bytes");
@@ -234,6 +238,9 @@ public abstract class AbstractUploader {
                             }
                         }
                     }
+                }
+                if(topLevel.iterator().hasNext()) {
+                    postProcessChildren(topLevel);
                 }
             }
             if (pw != null) {
