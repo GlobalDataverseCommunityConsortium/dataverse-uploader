@@ -567,8 +567,10 @@ public class DVUploader extends AbstractUploader {
                 for (Resource file : dir.listResources()) {
                     if (!file.isDirectory()) {
                         //println("Adding " + file.getName() + " to list: " + file.getMetadata().toString(2));
-
-                        jsonData.put(file.getMetadata());
+                        JSONObject fileMetadata = file.getMetadata();
+                        if(!fileMetadata.isEmpty()) {
+                            jsonData.put(file.getMetadata());
+                        }
                     }
                 }
                 meb.addTextBody("jsonData", jsonData.toString());
