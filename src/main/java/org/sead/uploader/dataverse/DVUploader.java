@@ -329,7 +329,8 @@ public class DVUploader extends AbstractUploader {
                             println("out:" + relPath);
         }
 
-        String sourcepath = item.getName();
+        //Create a path/name string w/o an initial /
+        String sourcepath = (path.length()==1 ? "" : path.substring(1)) + item.getName();
 
         // One-time: get metadata for dataset to see if it exists and what files it
         // contains
@@ -440,9 +441,11 @@ public class DVUploader extends AbstractUploader {
 
     @Override
     protected String verifyDataByHash(String tagId, String path, Resource item) {
-        JSONObject checksum = existingItems.get(item.getName());
+        String sourcepath = (path.startsWith("/") ? "" : path) + item.getName();
+
+        JSONObject checksum = existingItems.get(sourcepath);
         if (!checksum.getString("value").equals(item.getHash(checksum.getString("type")))) {
-            hashIssues.put(path + item.getName(), "!!!: A different version of this item exists with ID: " + tagId);
+            hashIssues.put(sourcepath, "!!!: A different version of this item exists with ID: " + tagId);
             return null;
         } // else it matches!
         return tagId;
