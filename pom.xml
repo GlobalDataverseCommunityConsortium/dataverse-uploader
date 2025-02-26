@@ -13,7 +13,7 @@
         <plugins>
             <plugin>
                 <artifactId>maven-compiler-plugin</artifactId>
-                <version>3.1</version>
+                <version>3.11.0</version>
                 <configuration>
                     <source>1.8</source>
                     <target>1.8</target>
@@ -22,7 +22,7 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-assembly-plugin</artifactId>
-                <version>2.4</version>
+                <version>3.6.0</version>
                 <configuration>
                     <archive>
                         <manifest>
@@ -72,22 +72,22 @@
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-core</artifactId>
-            <version>2.13.1</version>
+            <version>2.18.2</version>
         </dependency>
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
-            <version>2.13.4.2</version>
+            <version>2.18.2</version>
         </dependency>
         <dependency>
             <groupId>org.json</groupId>
             <artifactId>json</artifactId>
-            <version>20231013</version>
+            <version>20250107</version>
         </dependency>
         <dependency>
             <groupId>commons-io</groupId>
             <artifactId>commons-io</artifactId>
-            <version>2.14.0</version>
+            <version>2.18.0</version>
         </dependency>
         <dependency>
             <groupId>org.apache.commons</groupId>
@@ -97,7 +97,7 @@
         <dependency>
           <groupId>com.apicatalog</groupId>
           <artifactId>titanium-json-ld</artifactId>
-          <version>1.2.0</version>
+          <version>1.4.0</version>
         </dependency>
         <dependency>
           <groupId>org.glassfish</groupId>
