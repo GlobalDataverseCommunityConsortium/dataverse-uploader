@@ -99,6 +99,7 @@ public class DVUploader extends AbstractUploader {
     private static boolean directUpload = true;
     private static boolean trustCerts = false;
     private static boolean singleFile = false;
+    private boolean noIngest = false;
     
     private String fixityAlgorithm = "MD5";
 
@@ -168,6 +169,7 @@ public class DVUploader extends AbstractUploader {
         println("      -maxlockwait       - the maximum time to wait (in seconds) for a Dataset lock (i.e. while the last file is ingested) to expire (default 60 seconds)");
         println("      -trustall          - trust all server certificates (i.e. for use when testing with self-signed server certificates)");
         println("      -singlefile        - send each file to the server separately (only affects directupload/ when -uploadviaserver is not set)");
+        println("      -noIngest          - Tells Dataverse to not ingest tabular files upon upload");
         println("      -bag=<URL>         - 'alpha' capbility to create a dataset from a Bag exported by Dataverse. <URL> is the location of the Bag to process.");
         println("      -createIn=<alias>  - required for Bag import: the alias of the Dataverse you want to create a dataset in");
         println("");
@@ -175,7 +177,7 @@ public class DVUploader extends AbstractUploader {
         println("");
 
     }
-
+    
     @Override
     public boolean parseCustomArg(String arg) {
 
@@ -223,6 +225,10 @@ public class DVUploader extends AbstractUploader {
             } catch (NumberFormatException nfe) {
                 println("Unable to parse max wait time for locks, using default (60 seconds)");
             }
+            return true;
+        }else if (arg.equals("-noIngest")) {
+                noIngest = true;
+                println("Telling Dataverse to skip ingest for tabular files");
             return true;
         }
         return false;
@@ -690,7 +696,7 @@ public class DVUploader extends AbstractUploader {
 			String mdString = sw.toString();
                         
                 body = new StringEntity(mdString, "utf-8");
-println(mdString);
+
                 httppost.setEntity(body);
 
                 CloseableHttpResponse response = httpclient.execute(httppost, getLocalContext());
@@ -769,6 +775,7 @@ println(mdString);
 
                     MultipartEntityBuilder meb = MultipartEntityBuilder.create();
                     meb.addPart("file", bin);
+                    JSONObject jsonData = new JSONObject();
                     if (recurse) {
                         // Dataverse takes paths without an initial / and ending without a /
                         // with the path not including the file name
@@ -790,10 +797,15 @@ println(mdString);
 
                         if (!parentPath.isEmpty()) {
                             println("pp" + parentPath);
-                            meb.addTextBody("jsonData", "{\"directoryLabel\":\"" + parentPath + "\"}");
+                            jsonData.put("directoryLabel", parentPath);
                         }
                     }
-
+                    if(noIngest) {
+                        jsonData.put("tabIngest", "false");
+                    }
+                    if(!jsonData.isEmpty()) {
+                            meb.addTextBody("jsonData", jsonData.toString());
+                    }
                     HttpEntity reqEntity = meb.build();
                     httppost.setEntity(reqEntity);
 
@@ -1037,6 +1049,10 @@ println(mdString);
                                             inputChecksumObject.put("@value", localchecksum);
                                             jsonData.put("checksum", inputChecksumObject);
                                             jsonData.put("fileSize", file.length());
+                                            //Ingest only affects tabular files, but we can send it with all files
+                                            if(noIngest) {
+                                                jsonData.put("tabIngest", "false");
+                                            }
                                             if (recurse) {
                                                 // Dataverse takes paths without an initial / and ending without a /
                                                 // with the path not including the file name
@@ -1165,6 +1181,10 @@ println(mdString);
                                     inputChecksumObject.put("@value", mpUploadInfoMap.get(fixityAlgorithm));
                                     jsonData.put("checksum", inputChecksumObject);
                                     jsonData.put("fileSize", file.length());
+                                    if(noIngest) {
+                                        jsonData.put("tabIngest", "false");
+                                    }
+
                                     if (recurse) {
                                         // Dataverse takes paths without an initial / and ending without a /
                                         // with the path not including the file name
@@ -1236,6 +1256,10 @@ println(mdString);
             inputChecksumObject.put("@value", checksum);
             jsonData.put("checksum", inputChecksumObject);
             jsonData.put("fileSize", file.length());
+            if(noIngest) {
+                jsonData.put("tabIngest", "false");
+            }
+
             if (recurse) {
                 // Dataverse takes paths without an initial / and ending without a /
                 // with the path not including the file name
