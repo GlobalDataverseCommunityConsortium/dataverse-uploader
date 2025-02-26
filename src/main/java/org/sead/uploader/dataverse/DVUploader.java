@@ -79,6 +79,7 @@ import org.json.JSONObject;
 import org.sead.uploader.AbstractUploader;
 import static org.sead.uploader.AbstractUploader.println;
 import org.sead.uploader.util.BagResourceFactory;
+import org.sead.uploader.util.FileResource;
 import org.sead.uploader.util.PublishedResource;
 import org.sead.uploader.util.UploaderException;
 import org.sead.uploader.util.Resource;
@@ -100,6 +101,7 @@ public class DVUploader extends AbstractUploader {
     private static boolean trustCerts = false;
     private static boolean singleFile = false;
     private boolean noIngest = false;
+    private boolean fixNames = true;
     
     private String fixityAlgorithm = "MD5";
 
@@ -160,18 +162,19 @@ public class DVUploader extends AbstractUploader {
         println("      <did> = the Dataset DOI you are uploading to, e.g. doi:10.5072/A1B2C3");
         println("      <files or directories> = a space separated list of files to upload or directory name(s) where the files to upload are");
         println("\n  Optional Arguments:");
-        println("      -uploadviaserver      - Use Dataverse's indirect upload capability. This makes temporary copies of files on the Dataverse server, puts a greater workload on the server and is not suitable for large files, but it can be used when direct uploads are not enabled for a given dataset.");
-        println("      -listonly          - Scan the Dataset and local files and list what would be uploaded (does not upload with this flag)");
-        println("      -limit=<n>         - Specify a maximum number of files to upload per invocation.");
-        println("      -verify            - Check both the file name and checksum in comparing with current Dataset entries.");
-        println("      -skip=<n>          - a number of files to skip before starting processing (saves time when you know the first n files have been uploaded before)");
-        println("      -recurse           - recurse into subdirectories");
-        println("      -maxlockwait       - the maximum time to wait (in seconds) for a Dataset lock (i.e. while the last file is ingested) to expire (default 60 seconds)");
-        println("      -trustall          - trust all server certificates (i.e. for use when testing with self-signed server certificates)");
-        println("      -singlefile        - send each file to the server separately (only affects directupload/ when -uploadviaserver is not set)");
-        println("      -noIngest          - Tells Dataverse to not ingest tabular files upon upload");
-        println("      -bag=<URL>         - 'alpha' capbility to create a dataset from a Bag exported by Dataverse. <URL> is the location of the Bag to process.");
-        println("      -createIn=<alias>  - required for Bag import: the alias of the Dataverse you want to create a dataset in");
+        println("      -uploadviaserver    - Use Dataverse's indirect upload capability. This makes temporary copies of files on the Dataverse server, puts a greater workload on the server and is not suitable for large files, but it can be used when direct uploads are not enabled for a given dataset.");
+        println("      -listonly           - Scan the Dataset and local files and list what would be uploaded (does not upload with this flag)");
+        println("      -limit=<n>          - Specify a maximum number of files to upload per invocation.");
+        println("      -verify             - Check both the file name and checksum in comparing with current Dataset entries.");
+        println("      -skip=<n>           - a number of files to skip before starting processing (saves time when you know the first n files have been uploaded before)");
+        println("      -recurse            - recurse into subdirectories");
+        println("      -maxlockwait        - the maximum time to wait (in seconds) for a Dataset lock (i.e. while the last file is ingested) to expire (default 60 seconds)");
+        println("      -trustall           - trust all server certificates (i.e. for use when testing with self-signed server certificates)");
+        println("      -singlefile         - send each file to the server separately (only affects directupload/ when -uploadviaserver is not set)");
+        println("      -noIngest           - Tells Dataverse to not ingest tabular files upon upload");
+        println("      -failOnInvalidNames - Tells Dataverse to not ingest tabular files upon upload");
+        println("      -bag=<URL>          - 'alpha' capbility to create a dataset from a Bag exported by Dataverse. <URL> is the location of the Bag to process.");
+        println("      -createIn=<alias>   - required for Bag import: the alias of the Dataverse you want to create a dataset in");
         println("");
         println("See https://github.com/GlobalDataverseCommunityConsortium/dataverse-uploader/wiki/DVUploader,-a-Command-line-Bulk-Uploader-for-Dataverse for more usage information.");
         println("");
@@ -230,7 +233,12 @@ public class DVUploader extends AbstractUploader {
                 noIngest = true;
                 println("Telling Dataverse to skip ingest for tabular files");
             return true;
+        } else if (arg.equals("-failOnInvalidNames")) {
+                fixNames = false;
+                println("DVUploader will fail on invalid file or path names.");
+            return true;
         }
+        
         return false;
     }
     
@@ -336,7 +344,8 @@ public class DVUploader extends AbstractUploader {
         }
 
         //Create a path/name string w/o an initial /
-        String sourcepath = (path.length()==1 ? "" : path.substring(1)) + item.getName();
+        //Use a good path if bad chars exist - only a item with those replaced by "_" could exist on the server.
+        String sourcepath = getGoodSourcePath((path.length()==1 ? "" : path.substring(1)), item.getName());
 
         // One-time: get metadata for dataset to see if it exists and what files it
         // contains
@@ -755,7 +764,6 @@ public class DVUploader extends AbstractUploader {
         int retries = 5;
         if (directUpload) {
             try {
-//@Deprecated -used in v4.20                    dataId = directFileUpload(file, path, retries);
                 dataId = multipartDirectFileUpload(file, path, retries);
             } catch (IOException e) {
                 println("Error processing request for storage id" + file.getAbsolutePath() + " : " + e.getMessage());
@@ -770,34 +778,40 @@ public class DVUploader extends AbstractUploader {
                     String urlString = server + "/api/datasets/:persistentId/add";
                     urlString = urlString + "?persistentId=" + datasetPID + "&key=" + apiKey;
                     HttpPost httppost = new HttpPost(urlString);
+                    String goodFileName = file.getName();
+                    boolean badChars = (file.getName().matches(GOOD_NAME));
+                    if (badChars) {
+                        if (fixNames) {
+                            goodFileName = file.getName().replaceAll(BAD_NAME_CHARS, "_");
+                        } else {
+                            println("Skipping file: " + file.getName() + " due to invalid characters in the name [/:*?|;#");
+                            return dataId;
+                        }
+                    }
+                    String goodParentPath = "";
+                    if (recurse) {
+                        // Dataverse takes paths without an initial / and ending without a /
+                        // with the path not including the file name
+                        goodParentPath = getParentPath(path);
+                        if (!goodParentPath.isEmpty()) {
+                            if (!goodParentPath.matches(GOOD_PATH)) {
+                                if (fixNames) {
+                                    goodParentPath = goodParentPath.replaceAll(BAD_PATH_CHARS, "_");
+                                } else {
+                                    println("Skipping file: " + file.getName() + " due to invalid characters in the path: " + goodParentPath + " -can only contain letters, numbers, _-.\\/ or spaces");
+                                }
+                            }
+                        }
 
-                    ContentBody bin = file.getContentBody();
-
+                    }
+                    ContentBody bin = ((FileResource)file).getContentBody(goodFileName);
+                    
                     MultipartEntityBuilder meb = MultipartEntityBuilder.create();
                     meb.addPart("file", bin);
                     JSONObject jsonData = new JSONObject();
                     if (recurse) {
-                        // Dataverse takes paths without an initial / and ending without a /
-                        // with the path not including the file name
-                        String parentPath = "";
-                        if(!importRO) {
-                            parentPath= path.substring(1, path.lastIndexOf("/"));
-                        } else {
-                            println(path);
-                            parentPath= path.substring(path.indexOf("/data/") + 6);
-                            println(parentPath);
-                            parentPath= parentPath.substring(parentPath.indexOf("/"));
-                            println(parentPath);
-                            int index = parentPath.lastIndexOf("/");
-                            if(index>=0) {
-                            parentPath = parentPath.substring(0, index);
-                            }
-                            println("result:" + parentPath);
-                    }
-
-                        if (!parentPath.isEmpty()) {
-                            println("pp" + parentPath);
-                            jsonData.put("directoryLabel", parentPath);
+                        if (!goodParentPath.isEmpty()) {
+                            jsonData.put("directoryLabel", goodParentPath);
                         }
                     }
                     if(noIngest) {
@@ -909,80 +923,32 @@ public class DVUploader extends AbstractUploader {
         return false;
     }
 
-    @Deprecated
-    private String directFileUpload(Resource file, String path, int retries) throws IOException {
-        String dataId = null;
-        while (retries > 0) {
-            // Now post data
-            String urlString = server + "/api/datasets/:persistentId/uploadsid";
-            urlString = urlString + "?persistentId=doi:" + datasetPID.substring(4) + "&key=" + apiKey;
-            HttpGet httpget = new HttpGet(urlString);
-            CloseableHttpResponse response = httpclient.execute(httpget, getLocalContext());
-            try {
-                int status = response.getStatusLine().getStatusCode();
-                String uploadUrl = null;
-                String jsonResponse = null;
-                HttpEntity resEntity = response.getEntity();
-                if (resEntity != null) {
-                    jsonResponse = EntityUtils.toString(resEntity);
-                }
-                if (status == 200) {
-                    JSONObject data = (new JSONObject(jsonResponse)).getJSONObject("data");
-                    uploadUrl = data.getString("url");
-                    String storageIdentifier = data.getString("storageIdentifier");
-
-                    HttpPut httpput = new HttpPut(uploadUrl);
-
-                    httpput.addHeader("x-amz-tagging", "dv-state=temp");
-                    MessageDigest messageDigest = MessageDigest.getInstance("MD5");
-
-                    try (InputStream inStream = file.getInputStream(); DigestInputStream digestInputStream = new DigestInputStream(inStream, messageDigest)) {
-                        // This is hte new form for requests - keeping the example but won't update until we can change all
-                        //HttpUriRequest httpput = RequestBuilder.put()
-                        //    .setUri(uploadUrl)
-                        //    .setHeader("x-amz-tagging", "dv-state=temp")
-                        //    .setEntity(new InputStreamEntity(digestInputStream, file.length()))
-                        //    .build();
-                        httpput.setEntity(new InputStreamEntity(digestInputStream, file.length()));
-                        CloseableHttpResponse putResponse = httpclient.execute(httpput);
-                        try {
-                            int putStatus = putResponse.getStatusLine().getStatusCode();
-                            String putRes = null;
-                            HttpEntity putEntity = putResponse.getEntity();
-                            if (putEntity != null) {
-                                putRes = EntityUtils.toString(putEntity);
-                            }
-                            if (putStatus == 200) {
-                                String localchecksum = Hex.encodeHexString(digestInputStream.getMessageDigest().digest());
-                                dataId = registerFileWithDataverse(file, path, storageIdentifier, localchecksum, retries);
-                                retries = 0;
-                            }
-                        } catch (IOException e) {
-                            e.printStackTrace(System.out);
-                            println("Error processing POST to Dataverse" + file.getAbsolutePath() + " : " + e.getMessage());
-                            retries = 0;
-                        }
-                    }
-                } else {
-                    if (status >= 500) {
-                        retries=0;
-                    }
-                }
-
-            } catch (IOException e) {
-                e.printStackTrace(System.out);
-                println("Error processing file upload " + file.getAbsolutePath() + " : " + e.getMessage());
-                retries = 0;
-            } catch (NoSuchAlgorithmException e1) {
-                println("Checksum Algoritm not found: " + e1.getLocalizedMessage());
-            }
-        }
-        return dataId;
-    }
-
     private String multipartDirectFileUpload(Resource file, String path, int retries) throws IOException {
         String dataId = null;
-        
+        String goodFileName = file.getName();
+        boolean badChars = (file.getName().matches(GOOD_NAME));
+        if(badChars) {
+            if(fixNames) {
+                goodFileName =file.getName().replaceAll(BAD_NAME_CHARS, "_");
+            } else {
+                println("Skipping file: " + file.getName() + " due to invalid characters in the name [/:*?|;#");
+                return dataId;
+            }
+       }
+        String goodParentPath = "";
+        if (recurse) {
+            goodParentPath = getParentPath(path);
+            if (!goodParentPath.isEmpty()) {
+                if (!goodParentPath.matches(GOOD_PATH)) {
+                    if (fixNames) {
+                        goodParentPath = goodParentPath.replaceAll(BAD_PATH_CHARS, "_");
+                    } else {
+                        println("Skipping file: " + file.getName() + " due to invalid characters in the path: " + goodParentPath + " -can only contain letters, numbers, _-.\\/ or spaces");
+                    }
+                }
+            }
+        }
+
         while (retries > 0) {        
         // Start multipart upload with a call to Dataverse. It will make a call to S3 to start the multipart upload and will return a set of presigned Urls for us to upload the parts
         String urlString = server + "/api/datasets/:persistentId/uploadurls";
@@ -1042,7 +1008,7 @@ public class DVUploader extends AbstractUploader {
                                         } else {
                                             JSONObject jsonData = new JSONObject();
                                             jsonData.put("storageIdentifier", storageIdentifier);
-                                            jsonData.put("fileName", file.getName());
+                                            jsonData.put("fileName", goodFileName);
                                             jsonData.put("mimeType", file.getMimeType());
                                             JSONObject inputChecksumObject = new JSONObject();
                                             inputChecksumObject.put("@type", fixityAlgorithm);
@@ -1186,13 +1152,8 @@ public class DVUploader extends AbstractUploader {
                                     }
 
                                     if (recurse) {
-                                        // Dataverse takes paths without an initial / and ending without a /
-                                        // with the path not including the file name
-                                        if (path.substring(1).contains("/")) {
-                                            String parentPath = path.substring(1, path.lastIndexOf("/"));
-                                            if (!parentPath.isEmpty()) {
-                                                jsonData = jsonData.put("directoryLabel", parentPath);
-                                            }
+                                        if (!goodParentPath.isEmpty()) {
+                                            jsonData = jsonData.put("directoryLabel", goodParentPath);
                                         }
                                     }
                                     file.setMetadata(jsonData);
@@ -1235,6 +1196,10 @@ public class DVUploader extends AbstractUploader {
         }
         return dataId;
     }
+    private static final String BAD_PATH_CHARS = "[^\\w\\d_\\-\\.\\\\\\/ ]";
+    private static final String GOOD_PATH = "[\\w\\d_\\-\\.\\\\\\/ ]*";
+    private static final String GOOD_NAME = "[^\\[\\/:*?|;#]*";
+    private static final String BAD_NAME_CHARS = "[\\[\\/:*?|;#]";
 
     private String registerFileWithDataverse(Resource file, String path, String storageIdentifier, String checksum, int retries) {
         String dataId = null;
@@ -1363,5 +1328,26 @@ public class DVUploader extends AbstractUploader {
 
     private void addDatasetMetadata(Resource dir) {
       dir.getMetadata();
+    }
+
+    private String getParentPath(String path) {
+        // Dataverse takes paths without an initial / and ending without a /
+        // with the path not including the file name
+        String parentPath;
+        if (!importRO) {
+            parentPath = path.substring(1, path.lastIndexOf("/"));
+        } else {
+            parentPath = path.substring(path.indexOf("/data/") + 6);
+            parentPath = parentPath.substring(parentPath.indexOf("/"));
+            int index = parentPath.lastIndexOf("/");
+            if (index >= 0) {
+                parentPath = parentPath.substring(0, index);
+            }
+        }
+        return parentPath;
+    }
+
+    private String getGoodSourcePath(String path, String name) {
+        return path.replaceAll(BAD_PATH_CHARS, "_") + "/" + name.replaceAll(BAD_NAME_CHARS, "_");
     }
 }

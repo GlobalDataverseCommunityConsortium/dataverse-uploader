@@ -110,6 +110,11 @@ public class FileResource extends Resource {
 
     @Override
     public ContentBody getContentBody() {
+        return getContentBody(f.getName());
+}
+    
+    public ContentBody getContentBody(String name) {
+
         ContentType cType = ContentType.DEFAULT_BINARY;
         try {
             String mType = Files.probeContentType(f.toPath());
@@ -120,7 +125,7 @@ public class FileResource extends Resource {
         } catch (Exception e) {
             System.out.println(e.getMessage());
         }
-        return new FileBody(f, cType, f.getName());
+        return new FileBody(f, cType, name);
     }
 
     @Override
