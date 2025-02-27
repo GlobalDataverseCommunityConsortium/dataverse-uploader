@@ -351,6 +351,10 @@ public class DVUploader extends AbstractUploader {
         // contains
         if (!datasetMDRetrieved) {
             httpclient = getSharedHttpClient();
+            
+            JSONObject unknownChecksum = new JSONObject();
+            unknownChecksum.put("type", "md5");
+            unknownChecksum.put("value", "Unknown");
 
             try {
                 // This api call will find the dataset and, if found, retrieve the list of files
@@ -395,6 +399,14 @@ public class DVUploader extends AbstractUploader {
                             println("The file named " + df.getString("filename")
                                     + " on the server was created by Dataverse's ingest process from an original uploaded file");
                             convertedFiles = true;
+                            if(df.has("originalFileName")) {
+                                String filepath=df.getString("originalFileName");
+                                if(entry.has("directoryLabel")) {
+                                    filepath=entry.get("directoryLabel") + "/" + filepath;
+                                }
+                                println("Recording original file, checksum unknown: " + filepath);
+                                existingItems.put(filepath, unknownChecksum);
+                            }
                         }
                         String filepath = df.getString("filename");
                         if(entry.has("directoryLabel")) {
@@ -404,8 +416,10 @@ public class DVUploader extends AbstractUploader {
                         existingItems.put(filepath, df.getJSONObject("checksum"));
                     }
                     if (convertedFiles) {
-                        println("*****   DVUploader cannot detect attempts to re-upload files to Dataverse when Dataverse has created a derived file during ingest such as those listed above.");
-                        println("*****   You may see upload errors for any file where ingest would re-create one of these files.");
+                        println("*****   When a tabular file is ingested in Dataverse, DVUploader cannot get the checksum for the original file from Dataverse.");
+                        println("*****   DVUploader will avoid re-uploading files with the same original name and directoryLabel to Dataverse when Dataverse has created a derived file during ingest such as those listed above.");
+                        println("*****   However, since it cannot verify the checksum, when using the -verify flag it will report an ingested file as being different on the server, even if it is not, and will therefore try to upload a new copy.");
+                        println("*****   Using -verify is thus not recommended when you have ingested files (except perhaps in combination with -listonly).");
                     }
 
                 }
@@ -460,7 +474,7 @@ public class DVUploader extends AbstractUploader {
 
         JSONObject checksum = existingItems.get(sourcepath);
         if (!checksum.getString("value").equals(item.getHash(checksum.getString("type")))) {
-            hashIssues.put(sourcepath, "!!!: A different version of this item exists with ID: " + tagId);
+            hashIssues.put(sourcepath, "!!!: A different version of this item exists with " + checksum.getString("type") + " checksum: " + tagId);
             return null;
         } // else it matches!
         return tagId;
@@ -779,7 +793,7 @@ public class DVUploader extends AbstractUploader {
                     urlString = urlString + "?persistentId=" + datasetPID + "&key=" + apiKey;
                     HttpPost httppost = new HttpPost(urlString);
                     String goodFileName = file.getName();
-                    boolean badChars = (file.getName().matches(GOOD_NAME));
+                    boolean badChars = !file.getName().matches(GOOD_NAME);
                     if (badChars) {
                         if (fixNames) {
                             goodFileName = file.getName().replaceAll(BAD_NAME_CHARS, "_");
@@ -926,7 +940,7 @@ public class DVUploader extends AbstractUploader {
     private String multipartDirectFileUpload(Resource file, String path, int retries) throws IOException {
         String dataId = null;
         String goodFileName = file.getName();
-        boolean badChars = (file.getName().matches(GOOD_NAME));
+        boolean badChars = !file.getName().matches(GOOD_NAME);
         if(badChars) {
             if(fixNames) {
                 goodFileName =file.getName().replaceAll(BAD_NAME_CHARS, "_");
@@ -1196,10 +1210,13 @@ public class DVUploader extends AbstractUploader {
         }
         return dataId;
     }
-    private static final String BAD_PATH_CHARS = "[^\\w\\d_\\-\\.\\\\\\/ ]";
-    private static final String GOOD_PATH = "[\\w\\d_\\-\\.\\\\\\/ ]*";
-    private static final String GOOD_NAME = "[^\\[\\/:*?|;#]*";
-    private static final String BAD_NAME_CHARS = "[\\[\\/:*?|;#]";
+    //Matching Dataverse's validation from
+    //FileDirectoryNameValidator
+    private static final String BAD_PATH_CHARS = "[^\\w\\\\/. -]";
+    private static final String GOOD_PATH = "[\\w\\\\/. -]+";
+    // and FileMetadata
+    private static final String GOOD_NAME = "[^:<>;#/\"\\*\\|\\?\\\\]+";
+    private static final String BAD_NAME_CHARS = "[:<>;#/\"\\*\\|\\?\\\\]";
 
     private String registerFileWithDataverse(Resource file, String path, String storageIdentifier, String checksum, int retries) {
         String dataId = null;
