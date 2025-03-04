@@ -1365,6 +1365,6 @@ public class DVUploader extends AbstractUploader {
     }
 
     private String getGoodSourcePath(String path, String name) {
-        return path.replaceAll(BAD_PATH_CHARS, "_") + "/" + name.replaceAll(BAD_NAME_CHARS, "_");
+        return path.replaceAll(BAD_PATH_CHARS, "_") + name.replaceAll(BAD_NAME_CHARS, "_");
     }
 }
