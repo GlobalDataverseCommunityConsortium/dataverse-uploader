@@ -172,7 +172,7 @@ public class DVUploader extends AbstractUploader {
         println("      -trustall           - trust all server certificates (i.e. for use when testing with self-signed server certificates)");
         println("      -singlefile         - send each file to the server separately (only affects directupload/ when -uploadviaserver is not set)");
         println("      -noIngest           - Tells Dataverse to not ingest tabular files upon upload");
-        println("      -failOnInvalidNames - Tells Dataverse to not ingest tabular files upon upload");
+        println("      -failOnInvalidNames - Skip files where the path or name is invalid rather than replacing invalid chars with '_'");
         println("      -bag=<URL>          - 'alpha' capbility to create a dataset from a Bag exported by Dataverse. <URL> is the location of the Bag to process.");
         println("      -createIn=<alias>   - required for Bag import: the alias of the Dataverse you want to create a dataset in");
         println("");
